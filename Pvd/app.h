@@ -80,23 +80,24 @@ private:
 
     void process_data(Session *clt,char *data,int len)
     {
-        json_str.append(string(data,len));
-        prt(info,"string is %s",json_str.data());
+        str_stream.append(string(data,len));
+        prt(info,"string is %s",str_stream.data());
 #if 1
         string valid_buf;
         valid_buf.clear();
 
-        while(JsonStr::get_valid_buf(json_str,valid_buf)) {//Get valid json object, TODO:we only check {} matches, we should check json grammar
+        while(JsonStr::get_valid_buf(str_stream,valid_buf)) {//Get valid json object, TODO:we only check {} matches, we should check json grammar
             prt(info,"process string   %s",valid_buf.data());
-            prt(info,"left string   %s",json_str.data());
+            prt(info,"left string   %s",str_stream.data());
 
             //clt->send("hi,i get json",10);
         }
 #endif
     }
 private:
-    Tcpserver server;
-    string json_str;
+    vector <Session*> *clients1;
+    vector <Session*> *clients2;
+    string str_stream;
 };
 
 #endif // APP_H

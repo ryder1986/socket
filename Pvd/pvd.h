@@ -144,7 +144,7 @@ private:
         config_file=pkt.get_string("config_file");
         kalman_lost_frame_threhold=pkt.get_int("kalman_lost_frame_threhold");
         kalman_trace_len=pkt.get_int("kalman_trace_len");
-     }
+    }
 
 public:
     int server_port;
@@ -156,7 +156,7 @@ public:
     int kalman_lost_frame_threhold;
     int kalman_trace_len;
     static Pvd& get_instance()//ensure only 1 copy of Pvd exist in memory.
-    {
+    {//TODO: lock 4 multi-thread ?
 #if 1
         static FileDatabase server_setting("res/server.json");
         static Pvd pvd(server_setting.load());

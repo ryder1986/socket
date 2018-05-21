@@ -29,6 +29,8 @@ using namespace std;
 //#include "common.h"
 //#include "zenlog.h"
 
+#include <vector>
+//using namespace std;
 #define	TCP_NODELAY	 1
 class Socket{
 public:
@@ -527,6 +529,12 @@ public:
         trd=new thread([func](){func();});
     }
     Tcpserver(int p,function <void(Session *,char *,int)>fc):port(p),quit(false),fct(fc)
+    {
+        fd= Socket::StartTcpServerSock(port,1000,1000);
+        auto func=bind(&Tcpserver::listen,this);
+        trd=new thread([func](){func();});
+    }
+    Tcpserver(vector<Session*> *clts,int p,function <void(Session *,char *,int)>fc):port(p),quit(false),fct(fc)
     {
         fd= Socket::StartTcpServerSock(port,1000,1000);
         auto func=bind(&Tcpserver::listen,this);
