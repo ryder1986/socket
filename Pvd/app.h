@@ -67,14 +67,15 @@ private:
         return ret;
     }
 };
-
+#include "pvd.h"
 class App
 {
 public:
     App();
     void start()
     {
-        prt(info,"App start");
+        cout << "app start" << endl;
+       // prt(info,"App start");
     }
 private:
 
@@ -95,8 +96,8 @@ private:
 #endif
     }
 private:
-    vector <Session*> *clients1;
-    vector <Session*> *clients2;
+    vector <Session*> *stream_cmd;
+    vector <Session*> *stream_output;
     string str_stream;
 };
 

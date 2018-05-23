@@ -1,7 +1,10 @@
 #ifndef CONFIGMANAGER_H
 #define CONFIGMANAGER_H
 #include <iostream>
+#include <mutex>
 #include "tool.h"
+
+class DataPacket;
 using namespace std;
 class FileDatabase
 {
@@ -32,14 +35,25 @@ private:
     }
 
 public:
-    FileDatabase(string file_name);
+    FileDatabase(string file_name)
+    {
+        name=file_name;
+        load(file_name);
+    }
+
+
     void save(string data)
     {
+        lock.lock();
         save_file(data);
+        lock.unlock();
     }
     bool load(string &data)
     {
-        return load_file(data);
+        lock.lock();
+        bool ret=load_file(data);
+        lock.unlock();
+        return ret;
     }
     string load()
     {
@@ -48,13 +62,32 @@ public:
         return data;
     }
 private:
+    mutex lock;
     string name;
     string config;
 };
-class ConfigManager
-{
+
+class ConfigManager{
 public:
-    ConfigManager();
+    ConfigManager():db("res/config.json")
+    {
+
+    }
+    ~ConfigManager()
+    {
+
+    }
+    DataPacket get_config();
+
+private:
+    FileDatabase db;
+    int port_cmd;
+    int port_output;
 };
+//class ConfigManager
+//{
+//public:
+//    ConfigManager();
+//};
 
 #endif // CONFIGMANAGER_H

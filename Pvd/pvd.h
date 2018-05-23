@@ -35,13 +35,19 @@ public:
         }
         val=v;
     }
-
+    DataPacket(  vector<DataPacket>   ar)
+    {
+        JsonValue v;
+        int sz=ar.size();
+        for(int i=0;i<sz;i++){
+            v[i]=ar[i].val;
+        }
+        val=v;
+    }
     void set_int(string name,int v)
     {
         val[name]=v;
     }
-
-
     void  set_bool(string name ,bool v)
     {
 
@@ -90,7 +96,16 @@ public:
         }
         return ar;
     }
-
+    vector<DataPacket>  get_array_packet(string name)
+    {
+        JsonValue v=get_value(name);
+        vector<DataPacket>  ar;
+        int sz=v.size();
+        for(int i=0;i<sz;i++){
+            ar.push_back( v[i]);
+        }
+        return ar;
+    }
     void set_array(string name,vector<JsonValue> ar)
     {
         JsonValue v;
@@ -101,10 +116,6 @@ public:
         set_value(name,v);
     }
 
-    JsonValue value()
-    {
-        return val;
-    }
 
     vector <JsonValue>  array_value()
     {
@@ -116,16 +127,32 @@ public:
         }
         return vec;
     }
-
+    vector <DataPacket>  array_packet()
+    {
+        int sz=val.size();
+        vector <DataPacket> vec;
+        for(int i=0;i<sz;i++)
+        {
+            vec.push_back(val[i]);
+        }
+        return vec;
+    }
     string data()
     {
         FastWriter  w;
         return  w.write(val);
     }
+
+
 private:
+    JsonValue value()
+    {
+        return val;
+    }
+
     JsonValue val;
 };
-
+#if 0
 class Pvd{
 private:
     Pvd()
@@ -197,70 +224,72 @@ public:
         SERVER_REPORTER_PORT=12348
     };
 };
-#if 0
-    examples:
-    1.config file: a demo example of config.json
-        {
-            "cameras": [
-                {
-                    "channel": [
-                        {
-                            "selected_alg":"pvd_c4",
-                            "pvd_c4": {
-                                "channel_id":1,
-                                "step":2,
-                                "ratio":"0.8",
-                                "detect_area": [
-                                    {
-                                        "x": 119,
-                                        "y": 332
-                                    },
-                                    {
-                                        "x": 324,
-                                        "y": 312
-                                    },
-                                    {
-                                        "x": 628,
-                                        "y": 462
-                                    },
-                                    {
-                                        "x": 225,
-                                        "y": 474
-                                    }
-                                ]
-                            }
-                        }
-                    ],
-                    "camera_id": 2,
-                    "camera_ip": "192.168.1.97",
-                    "camera_port": 5000,
-                    "direction": 3,
-                    "password": "admin",
-                    "url": "rtsp://192.168.1.97:554/av0_1",
-                    "url1": "rtsp://192.168.1.216:8554/test1",
-                    "user_name": "admin"
-                }
-            ],
-            "deviceID": 0,
-            "device_name": "110",
-            "ntp_ip": "192.168.1.3",
-            "ntp_port": 1111,
-            "signal_machine_ip": "192.168.1.2",
-            "signal_machine_port": 9999
-        }
-    2.server.json: read when startup
-        {
-            "server_port":12345,
-            "client_data_port":12346,
-            "alg_hog_file1":"res/hogcascade_pedestrians.xml",
-            "alg_c4_file1":"res/combined.txt.model",
-            "alg_c4_file2":"res/combined2.txt.model",
-            "config_file":"res/config.json",
-            "kalman_lost_frame_threhold":5,
-            "kalman_trace_len":100
-        }
-    3.protocal: cmd sent from client
-
 
 #endif
-#endif // PD_H
+#if 0
+examples:
+1.config file: a demo example of config.json
+{
+                   "cameras": [
+{
+               "channel": [
+{
+               "selected_alg":"pvd_c4",
+               "pvd_c4": {
+               "channel_id":1,
+               "step":2,
+               "ratio":"0.8",
+               "detect_area": [
+{
+               "x": 119,
+               "y": 332
+               },
+{
+               "x": 324,
+               "y": 312
+               },
+{
+               "x": 628,
+               "y": 462
+               },
+{
+               "x": 225,
+               "y": 474
+               }
+               ]
+               }
+               }
+  ],
+    "camera_id": 2,
+    "camera_ip": "192.168.1.97",
+    "camera_port": 5000,
+    "direction": 3,
+    "password": "admin",
+    "url": "rtsp://192.168.1.97:554/av0_1",
+    "url1": "rtsp://192.168.1.216:8554/test1",
+    "user_name": "admin"
+    }
+    ],
+    "deviceID": 0,
+    "device_name": "110",
+    "ntp_ip": "192.168.1.3",
+    "ntp_port": 1111,
+    "signal_machine_ip": "192.168.1.2",
+    "signal_machine_port": 9999
+    }
+    2.server.json: read when startup
+{
+                 "server_port":12345,
+                 "client_data_port":12346,
+                 "alg_hog_file1":"res/hogcascade_pedestrians.xml",
+                 "alg_c4_file1":"res/combined.txt.model",
+                 "alg_c4_file2":"res/combined2.txt.model",
+                 "config_file":"res/config.json",
+                 "kalman_lost_frame_threhold":5,
+                 "kalman_trace_len":100
+                 }
+  3.protocal: cmd sent from client
+
+
+  #endif
+  #endif // PD_H

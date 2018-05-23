@@ -9,23 +9,22 @@ A Demo of a simple tcp server which parse 1 json string a time.
 using namespace std;
 void handle_cmd()
 {
-    string str;
+    string str="123";
     while(1){
+        cout<<"abc\n";fflush(stdout);
         cin>>str;
-        cout<<str<<endl;
-        system(str.data());
+        cout<<str+"111"<<endl;fflush(stdout);
+        str="";
+    //    system(str.data());
     }
 }
 
 int main()
 {
-    //Tcpserver server(50001,process_data);
- //   server.set_ret_func(bind(process_data,placeholders::_1,placeholders::_2));
-    //cout << "Hello server!" << endl;
-
     thread(bind(handle_cmd)).detach();
     App app;
-    app.start();
+//    app.start();
+    fflush(NULL);
     while(1)
     {
         this_thread::sleep_for(chrono::milliseconds(1000));

@@ -13,3 +13,10 @@ HEADERS+=tool.h server.h \
     configmanager.h pvd.h
 DEFINES+=IS_UNIX
 LIBS+=-lpthread
+
+install_files.files+=res
+install_files.path=$$OUT_PWD/
+INSTALLS+=install_files
+
+DISTFILES += \
+    res/config.json
