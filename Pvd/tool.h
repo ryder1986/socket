@@ -319,7 +319,6 @@ private:
     This is a   timer which take 1 arg
 */
 class Timer2{
-    typedef function<void()> timed_func_t;
   public:
     template<typename callable, class... arguments>
     void SyncWait(int after, callable&& f, arguments&&... args){
@@ -340,31 +339,12 @@ class Timer2{
         }).detach();
     }
   public:
-    Timer2(timed_func_t user_func):quit(false),func(user_func),interval(1000000)
+    Timer2()
     {
 
-    }
-
-    void start(int inter)
-    {
-        interval=inter;
-        thread([this]{
-            while(!quit){
-             //   func(placeholders::_1);
-                this_thread::sleep_for(chrono::milliseconds(interval));
-            }
-        }).detach();
-    }
-    void stop()
-    {
-        quit=true;
     }
 
 private:
-   // timed_func_t func=[]{cout<<"warn: undefined function"<<endl;};
-    timed_func_t func;//=[]{cout<<"warn: undefined function"<<endl;};
-      bool quit;
-    int interval;
 };
 
 #define prt(label,...) {Tool1::lock.lock(); char buf[Tool1::LENGTH_FIXED_VALUE::BUFFER_LENGTH];memset(buf,0,sizeof(buf));snprintf(buf,sizeof(buf),__VA_ARGS__);\
