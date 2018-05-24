@@ -330,8 +330,7 @@ class Timer2{
     }
     template<typename callable, class... arguments>
     void AsyncWait(int after, callable&& f, arguments&&... args){
-        std::function<typename std::result_of<callable(arguments...)>::type()> task
-            (std::bind(std::forward<callable>(f), std::forward<arguments>(args)...));
+        std::function<typename std::result_of<callable(arguments...)>::type()> task(std::bind(std::forward<callable>(f), std::forward<arguments>(args)...));
 
         std::thread([after, task](){
             std::this_thread::sleep_for(std::chrono::milliseconds(after));
