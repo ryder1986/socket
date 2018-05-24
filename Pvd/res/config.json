@@ -44,5 +44,7 @@
     "ntp_ip": "192.168.1.3",
     "ntp_port": 1111,
     "signal_machine_ip": "192.168.1.2",
-    "signal_machine_port": 9999
+    "signal_machine_port": 9999,
+    "output_port":12346,
+    "server_port":12345
 }

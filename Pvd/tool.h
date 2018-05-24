@@ -241,7 +241,7 @@ public:
                     append(last_substr(last_substr(fn,'/'),'\\').data()).append(",").append(buf1).append(",").append(func_name).append("]===>").append(buf).append("\n");
             cout<<tmp_str;
             log_file1.write(tmp_str.data());
-          //  fflush(stdout);
+            fflush(stdout);
         }
     }
     inline static char* get_time_n()
@@ -284,6 +284,9 @@ public:
 };
 
 #include <functional>
+/*
+    This is a versy timer
+*/
 class Timer1{
     typedef function<void()> timed_func_t;
 public:
@@ -312,8 +315,59 @@ private:
     bool quit;
     int interval;
 };
+/*
+    This is a   timer which take 1 arg
+*/
+class Timer2{
+    typedef function<void()> timed_func_t;
+  public:
+    template<typename callable, class... arguments>
+    void SyncWait(int after, callable&& f, arguments&&... args){
 
-#define prt(label,...) {Tool1::lock.lock(); char buf[Tool1::LENGTH_FIXED_VALUE::BUFFER_LENGTH];sprintf(buf,__VA_ARGS__);\
+        std::function<typename std::result_of<callable(arguments...)>::type()> task
+            (std::bind(std::forward<callable>(f), std::forward<arguments>(args)...));
+        std::this_thread::sleep_for(std::chrono::milliseconds(after));
+        task();
+    }
+    template<typename callable, class... arguments>
+    void AsyncWait(int after, callable&& f, arguments&&... args){
+        std::function<typename std::result_of<callable(arguments...)>::type()> task
+            (std::bind(std::forward<callable>(f), std::forward<arguments>(args)...));
+
+        std::thread([after, task](){
+            std::this_thread::sleep_for(std::chrono::milliseconds(after));
+            task();
+        }).detach();
+    }
+  public:
+    Timer2(timed_func_t user_func):quit(false),func(user_func),interval(1000000)
+    {
+
+    }
+
+    void start(int inter)
+    {
+        interval=inter;
+        thread([this]{
+            while(!quit){
+             //   func(placeholders::_1);
+                this_thread::sleep_for(chrono::milliseconds(interval));
+            }
+        }).detach();
+    }
+    void stop()
+    {
+        quit=true;
+    }
+
+private:
+   // timed_func_t func=[]{cout<<"warn: undefined function"<<endl;};
+    timed_func_t func;//=[]{cout<<"warn: undefined function"<<endl;};
+      bool quit;
+    int interval;
+};
+
+#define prt(label,...) {Tool1::lock.lock(); char buf[Tool1::LENGTH_FIXED_VALUE::BUFFER_LENGTH];memset(buf,0,sizeof(buf));snprintf(buf,sizeof(buf),__VA_ARGS__);\
     Tool1::prt(buf,__LINE__,__FUNCTION__,__FILE__,#label,Tool1::get_time().data());Tool1::lock.unlock();}
 #define THREAD_DEF(cls,fun) new thread(std::mem_fn(&cls::fun),*(cls*)this);
 
