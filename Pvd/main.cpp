@@ -2,6 +2,7 @@
 #include "videosource.h"
 #include "testtimer.h"
 #include "testprocess.h"
+#include "testsource.h"
 /*
 A Demo of a simple tcp server which parse 1 json string a time.
 */
@@ -34,18 +35,28 @@ void test_fun1(int t)
 int main()
 {
 
-//    App app;
-//    app.start();
+
 
     //    TestTimer().start();
-        prt(info,"start");
-     TestProcess().start();
+    prt(info,"app start");
+    App app;
+    app.start();
 
 
-   prt(info,"loop");
-        while (1) {
-                this_thread::sleep_for(chrono::milliseconds(100));
-        }
+
+
+    TestProcess aa;aa.start();
+    //   TestSource  bb;bb.start();
+
+
+
+
+
+
+    prt(info,"app ending in loop");
+    while (1) {
+        this_thread::sleep_for(chrono::milliseconds(100));
+    }
 
 
 

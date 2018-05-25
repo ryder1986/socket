@@ -18,9 +18,7 @@ public:
     VideoProcessor()
     {
     }
-    virtual  void prepare(QJsonValue v)
-    {
-    }
+
     int get_id()
     {
         return channel_id;
@@ -28,6 +26,16 @@ public:
     virtual  bool process( Mat img)
     {
         return false;
+    }
+    virtual bool process(Mat img_src,vector<Rect> &rects)
+    {
+
+    }
+
+    virtual bool process(Mat img_src,vector<Rect> &rects,Rect detect_area)
+    {
+
+
     }
     virtual  string get_rst()
     {

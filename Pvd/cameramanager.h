@@ -1,14 +1,19 @@
 #ifndef CAMERAMANAGER_H
 #define CAMERAMANAGER_H
 
-#include <QObject>
-#include <QList>
-#include <QDebug>
+
 #include "pvd.h"
 #include "camera.h"
-class CameraManager : public QObject
+/* recive packet: value of cameras[vector of datapacket]
+    "cameras": [
+        {
+        },
+        {
+        }
+     ]
+*/
+class CameraManager
 {
-    Q_OBJECT
 public:
     enum{
         MODIFY_ALG,
@@ -16,44 +21,47 @@ public:
         MODIFY_DIRECTION,
         MODIFY_ARGS
     };
-    friend class Server;
-    explicit CameraManager(JsonValue config,QObject *parent = 0);
-    ~CameraManager();
-    JsonValue config()
+
+    CameraManager(DataPacket cfg)
     {
-        return cfg_2_jv();
+        cameras.clear();
+        decode(cfg);
+        start_cams();
+    }
+    ~CameraManager()
+    {
+        stop_cams();
+    }
+    DataPacket config()
+    {
+        return encode();
     }
 public:
-    void restart_cameras(JsonValue cfg);
-    bool insert_camera(int index,JsonValue cfg);
-    void delete_camera(int index);
-    bool modify_camera(int index,JsonValue v,int mod_type);
-    void modify_attr(int index,JsonValue v);
+    void restart_cameras(DataPacket cfg);
+    bool insert_camera(int index,DataPacket cfg);
+    bool delete_camera(int index);
+    bool modify_camera(int index,DataPacket v,int mod_type);
+    void modify_attr(int index,DataPacket v);
 private:
     void start_cams()
     {
-        foreach (JsonValue v, cam_cfgs)
+        for (DataPacket v: cam_cfgs)
         {
-            cameras.append(new Camera(v));
+            cameras.push_back(new Camera(v));
         }
     }
 
     void stop_cams()
     {
-        prt(info,"cam size %d",cameras.size());
-        foreach (Camera *c, cameras)
+        for (Camera *c: cameras)
         {
             delete c;
-            prt(info,"cam size %d",cameras.size());
         }
         cameras.clear();
-        prt(info,"cam size %d",cameras.size());
     }
 
-    bool check_op_index(int index)
+    bool index_valid(int index)
     {
-        if(cameras.size()==0)
-            return false;
         if(index<1||index>cameras.size()){
             prt(fatal,"index %d out of range(1-%d)",index,cameras.size());
             return false;
@@ -61,30 +69,43 @@ private:
         return true;
     }
 
-    //trans config to json value
-    inline JsonValue cfg_2_jv()
+    void decode(DataPacket pkt)
     {
-        vector<JsonValue> vec;
-        foreach (JsonValue v, cam_cfgs) {
-            vec.push_back(v);
-        }
-        DataPacket pkt(vec);
-        return pkt.value();
-    }
-
-    inline void jv_2_cfg(JsonValue jv)
-    {
-        DataPacket pkt(jv);
         cam_cfgs.clear();
-        foreach (JsonValue v, pkt.array_value())
+        for (DataPacket v: pkt.array_packet())
         {
             cam_cfgs.push_back(v);
         }
     }
+    DataPacket encode()
+    {
+        return  DataPacket(cam_cfgs);
+    }
+
+    //trans config to json value
+    //    inline JsonValue cfg_2_jv()
+    //    {
+    //        vector<JsonValue> vec;
+    //        for (JsonValue v: cam_cfgs) {
+    //            vec.push_back(v);
+    //        }
+    //        DataPacket pkt(vec);
+    //        return pkt.value();
+    //    }
+
+    //    inline void jv_2_cfg(JsonValue jv)
+    //    {
+    //        DataPacket pkt(jv);
+    //        cam_cfgs.clear();
+    //        foreach (JsonValue v, pkt.array_value())
+    //        {
+    //            cam_cfgs.push_back(v);
+    //        }
+    //    }
 
 private:
-    QList <Camera *>cameras;
-    QList <JsonValue> cam_cfgs;
+    vector <Camera *>cameras;
+    vector <DataPacket> cam_cfgs;
 };
 
 #endif // CAMERAMANAGER_H

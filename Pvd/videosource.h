@@ -187,7 +187,7 @@ public:
     {
         if(frame_list.size()>1){
             frame=*frame_list.begin();
-            frame_list.pop_back();
+            frame_list.erase(frame_list.begin());
             return true;
         }else{
             return false;
@@ -200,7 +200,7 @@ private:
     void check_point()
     {
         if(vcap.isOpened()){
-            double w= vcap.get(CV_CAP_PROP_FRAME_COUNT);
+            double w= vcap.get(CV_CAP_PROP_POS_FRAMES);
             prt(info,"%s src frames %lf",url.data(),w);
         }
     }

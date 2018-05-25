@@ -5,6 +5,7 @@ VideoSource::VideoSource(string path):t1(bind(&VideoSource::check_point,this)),f
 {
   //  Timer1 t1(bind(&VideoSource::check_point,this));
     t1.start(1000);
+    prt(info,"%s",path.data());
     url=path;
     quit_flg=false;
     thread(bind(&VideoSource::run,this)).detach();
@@ -18,6 +19,7 @@ VideoSource::~VideoSource()
 void VideoSource::run()
 {
     vcap=VideoCapture(url);
+  //  this_thread::sleep_for(chrono::milliseconds(1000));
     if(!vcap.isOpened()){
         prt(info,"fail to open %s", url.data());
     }else{

@@ -346,9 +346,85 @@ class Timer2{
 private:
 };
 
+class JsonStr{
+public:
+
+    static  inline bool get_valid_buf(string &src,string &dst)
+    {
+        if(try_get_obj_buf(src,dst)){
+            //src.remove(0,dst.size());
+            src=src.substr(dst.size(),src.size());
+            return true;
+        }
+        return false;
+    }
+private:
+    static  inline bool try_get_obj_buf(string src,string &dst)
+    {
+        int ret=false;
+        int stack=0;
+        const char *p_tmp=src.data();
+        bool flg=false;
+        dst.clear();
+        dst.append(src);
+        int i;
+        if(count_begin_symbol(src)>0){
+            for(i=0;i<src.size();i++){
+                if(p_tmp[i]=='{')
+                {
+                    stack++;
+                    flg=true;
+                }
+                if(p_tmp[i]=='}')
+                    stack--;
+                if(stack==0&&flg)
+                {
+                    break;
+                }
+
+            }
+            if(i<src.size()){
+                ret=true;
+                if(src[i+1]=='\n')
+                    //   dst.truncate(i+2);
+                    dst.substr(0,i+2);
+                else
+                    // dst.truncate(i+i);
+                    dst.substr(0,i+1);
+            }
+        }
+        return ret;
+    }
+    static inline int count_begin_symbol(string ba)
+    {
+        const char *tmp=ba.data();
+        int sz=ba.size();
+        int ret=0;
+        int i;
+        for( i=0;i<sz;i++){
+            if(tmp[i]=='{'){
+                ret++;
+            }
+        }
+        return ret;
+    }
+};
 #define prt(label,...) {Tool1::lock.lock(); char buf[Tool1::LENGTH_FIXED_VALUE::BUFFER_LENGTH];memset(buf,0,sizeof(buf));snprintf(buf,sizeof(buf),__VA_ARGS__);\
     Tool1::prt(buf,__LINE__,__FUNCTION__,__FILE__,#label,Tool1::get_time().data());Tool1::lock.unlock();}
 #define THREAD_DEF(cls,fun) new thread(std::mem_fn(&cls::fun),*(cls*)this);
 
+#include <sys/time.h>
+inline int get_time()
+{
+    time_t tt;
+    struct timeval tv;
+    tt=time(NULL);
+    gettimeofday(&tv,NULL);
+    return tv.tv_sec*1000+tv.tv_usec/1000;
+}
+inline int get_time_point_ms()
+{
+    return get_time();
+}
 
 #endif // TOOL1_H

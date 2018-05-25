@@ -21,7 +21,10 @@ public:
     {
         val = v;
     }
-
+//    DataPacket(DataPacket &&v)
+//    {
+//        val = v.value();
+//    }
     DataPacket()
     {
     }
@@ -64,11 +67,17 @@ public:
     {
         val[name]=value;
     }
-
-
+    void set_pkt(string name,DataPacket pkt)
+    {
+        val[name]=pkt.value();
+    }
     JsonValue get_value(string name)
     {
         return val[name];
+    }
+    DataPacket get_pkt(string name)
+    {
+        return DataPacket(val[name]);
     }
 
     int get_int(string name)
@@ -106,14 +115,15 @@ public:
         }
         return ar;
     }
-    void set_array(string name,vector<JsonValue> ar)
+    void set_array(string name,vector<DataPacket> ar)
     {
-        JsonValue v;
-        int sz=ar.size();
-        for(int i=0;i<sz;i++){
-            v.append(ar[i]);
-        }
-        set_value(name,v);
+
+//        JsonValue v;
+//        int sz=ar.size();
+//        for(int i=0;i<sz;i++){
+//            v.append(ar[i]);
+//        }
+        set_value(name,DataPacket(ar).value());
     }
 
 
@@ -143,12 +153,15 @@ public:
         return  w.write(val);
     }
 
-
-private:
     JsonValue value()
     {
         return val;
     }
+private:
+//    JsonValue value()
+//    {
+//        return val;
+//    }
 
     JsonValue val;
 };

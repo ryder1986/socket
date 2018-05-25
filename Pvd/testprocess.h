@@ -2,15 +2,64 @@
 #define TESTPROCESS_H
 #include "tool.h"
 #include "test.h"
+#include "videosource.h"
+#include "c4processor.h"
+#include "videoprocessor.h"
+#include "hogprocessor.h"
 class TestProcess:public Test
 {
 public:
-    TestProcess();
-    void start()
+    TestProcess():src("rtsp://192.168.1.95:554/av0_1")
     {
-        prt(info,"start here");
+        DataPacket pkt;
+        pkt.set_string("ratio","0.7");
+        pkt.set_int("step",2);
+     //   pro=new PvdC4Processor(pkt);
+        pro=new PvdHogProcessor(pkt);
     }
 
+
+    ~TestProcess()
+    {
+        delete pro;
+        prt(info," quit test process ");
+    }
+    void fun()
+    {
+        prt(info,"test %s ",typeid(TestProcess).name());
+    }
+    void run_process(int t)
+    {
+        Mat frame;
+        while(1){
+            this_thread::sleep_for(chrono::milliseconds(10));
+            if(src.get_frame(frame)){
+                prt(info,"get a frame ");
+                vector <Rect> rcts;
+                Rect area(0,0,640,480);
+
+                pro->process(frame,rcts,area);
+                prt(info,"result %d ",rcts.size());
+
+                if(rcts.size()>1){
+                    cv::Rect rc=rcts.front();
+                    rectangle(frame,rc, cv::Scalar(0,255,255), 2);
+                }
+                imshow("123",frame);
+                waitKey(1);
+            }
+        }
+    }
+
+    void start()
+    {
+        _start(bind(&TestProcess::run_process,this,placeholders::_1),99);
+    }
+
+private:
+    VideoSource src;
+    VideoProcessor *pro;
+    //  Timer1 *tm;
 };
 
 #endif // TESTPROCESS_H

@@ -1,70 +1,51 @@
 #include "cameramanager.h"
-
-CameraManager::CameraManager(JsonValue cfg,QObject *parent) : QObject(parent)
+void CameraManager::restart_cameras(DataPacket cfg)
 {
-    cameras.clear();
-    jv_2_cfg(cfg);
-    start_cams();
-}
-
-CameraManager::~CameraManager()
-{
-    stop_cams();
-}
-void CameraManager::restart_cameras(JsonValue cfg)
-{
-    jv_2_cfg(cfg);//set config
+    decode(cfg);
     stop_cams();//stop all cameras
     start_cams();//start all cameras with new config
 }
 
-bool CameraManager::insert_camera(int index,JsonValue cfg)
+//wanted index means ,the new camera want to get the position
+bool CameraManager::insert_camera(int wanted_index,DataPacket data)
 {
-    bool ret=false;
-    if(index>cameras.size()+1)
-    {
-        index=cameras.size()+1;
-    }
-    if(index<1){
-        prt(fatal,"index %d out of range",index);
-    }else{
-        prt(fatal,"insert cam  %d  ",index);
-        cameras.insert(index-1,new Camera(cfg));
-        cam_cfgs.insert(index-1,cfg);
+    int ret=false;
+    if(index_valid(wanted_index)){
+        prt(info,"add cam into pos %d  ",wanted_index);
+        Camera *c=new Camera(data);
+        vector<Camera *>::iterator it_cams;
+        cameras.insert(it_cams+wanted_index-1,c);
+        vector <DataPacket>::iterator  it_cfg;
+        cam_cfgs.insert(it_cfg+wanted_index-1,c->config());
         ret=true;
+    }else{
+        ret=false;
     }
     return ret;
 }
-void CameraManager::delete_camera(int index)
+bool CameraManager::delete_camera(int index)
 {
-    if(check_op_index(index)){
-        prt(fatal,"del cam  %d  ",index);
+    int ret=false;
+    if(index_valid(index)){
+        prt(info,"deleting cam  %d  ",index);
         delete cameras[index-1];
-        cameras.removeAt(index-1);
-        cam_cfgs.removeAt(index-1);
-    }else{
-
-    }
-}
-bool CameraManager::modify_camera(int index,JsonValue v,int mod_type)
-{
-    bool ret=false;
-    if(index<1|index>cameras.size()){
-        prt(error,"index out of rean");
-        return ret;
-    }
-
-    if(cameras[index-1]->modify_alg(v)){
+        vector<Camera *>::iterator it;
+        cameras.erase(it+index-1);
+        vector <DataPacket>::iterator it_cfg;
+        cam_cfgs.erase(it_cfg+index-1);
         ret=true;
     }else{
-        return ret;
+        ret=false;
     }
-
-    cam_cfgs[index-1]=cameras[index-1]->config();
     return ret;
 }
-void CameraManager::modify_attr(int index,JsonValue v)
+bool CameraManager::modify_camera(int index,DataPacket data,int mod_type)
 {
-    cameras[index-1]->modify_attr(v);
-    cam_cfgs[index-1]= cameras[index-1]->config();
+    bool ret=false;
+    if(index_valid(index)){
+       Camera *c= cameras[index-1];
+       c->modify(data);
+       cam_cfgs[index-1]=c->config();
+    }
+    return ret;
 }
