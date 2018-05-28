@@ -1,0 +1,1105 @@
+Description: Patching recovered from linux-ftpd_0.17-13.diff.gz
+Author: Herbert Xu <herbert@debian.org>
+X-Comment: Bug #88837 contributed by Liviu Daia, Abraham van der Merwe,
+ and Rainer Weikusat
+Forwarded: no
+Last-Update: 2002-02-09
+--- linux-ftpd-0.17.orig/ftpd/ftpcmd.y
++++ linux-ftpd-0.17/ftpd/ftpcmd.y
+@@ -55,6 +55,7 @@
+ #include <ctype.h>
+ #include <errno.h>
+ #include <glob.h>
++#include <inttypes.h>
+ #include <pwd.h>
+ #include <setjmp.h>
+ #include <signal.h>
+@@ -111,8 +112,8 @@
+ %}
+ 
+ %union {
+-	int	i;
+-	char   *s;
++	intmax_t i;
++	char *s;
+ }
+ 
+ %token
+@@ -595,9 +596,9 @@
+ 		{
+ 			if ($2) {
+ 			    fromname = (char *) 0;
+-			    restart_point = $4;	/* XXX $4 is only "int" */
+-			    reply(350, "Restarting at %qd. %s", 
+-			       (quad_t) restart_point,
++			    restart_point = $4;
++			    reply(350, "Restarting at %jd. %s", 
++			       (intmax_t) restart_point,
+ 			       "Send STORE or RETRIEVE to initiate transfer.");
+ 			}
+ 		}
+@@ -931,7 +932,7 @@
+ 		if (tmpline[c] == '\n') {
+ 			*cs++ = '\0';
+ 			if (debug)
+-				syslog(LOG_DEBUG, "command: %s", s);
++				syslog(LOG_FTP | LOG_DEBUG, "command: %s", s);
+ 			tmpline[0] = '\0';
+ 			return(s);
+ 		}
+@@ -973,7 +974,7 @@
+ 	if (debug) {
+ 		if (!guest && strncasecmp("pass ", s, 5) == 0) {
+ 			/* Don't syslog passwords */
+-			syslog(LOG_DEBUG, "command: %.5s ???", s);
++			syslog(LOG_FTP | LOG_DEBUG, "command: %.5s ???", s);
+ 		} else {
+ 			register char *cp;
+ 			register int len;
+@@ -985,7 +986,7 @@
+ 				--cp;
+ 				--len;
+ 			}
+-			syslog(LOG_DEBUG, "command: %.*s", len, s);
++			syslog(LOG_FTP | LOG_DEBUG, "command: %.*s", len, s);
+ 		}
+ 	}
+ 	return (s);
+@@ -998,7 +999,7 @@
+ 	reply(421,
+ 	    "Timeout (%d seconds): closing control connection.", timeout);
+ 	if (logging)
+-		syslog(LOG_INFO, "User %s timed out after %d seconds",
++		syslog(LOG_FTP | LOG_INFO, "User %s timed out after %d seconds",
+ 		    (pw ? pw -> pw_name : "unknown"), timeout);
+ 	dologout(1);
+ }
+@@ -1143,7 +1144,7 @@
+ 					;
+ 				c = cbuf[cpos];
+ 				cbuf[cpos] = '\0';
+-				yylval.i = atoi(cp);
++				yylval.i = strtoimax(cp, 0, 10);
+ 				cbuf[cpos] = c;
+ 				state = STR1;
+ 				return (NUMBER);
+@@ -1158,7 +1159,7 @@
+ 					;
+ 				c = cbuf[cpos];
+ 				cbuf[cpos] = '\0';
+-				yylval.i = atoi(cp);
++				yylval.i = strtoimax(cp, 0, 10);
+ 				cbuf[cpos] = c;
+ 				return (NUMBER);
+ 			}
+@@ -1314,7 +1315,7 @@
+ 		if (stat(filename, &stbuf) < 0 || !S_ISREG(stbuf.st_mode))
+ 			reply(550, "%s: not a plain file.", filename);
+ 		else
+-			reply(213, "%qu", (quad_t) stbuf.st_size);
++			reply(213, "%ju", (uintmax_t) stbuf.st_size);
+ 		break; }
+ 	case TYPE_A: {
+ 		FILE *fin;
+@@ -1340,7 +1341,7 @@
+ 		}
+ 		(void) fclose(fin);
+ 
+-		reply(213, "%qd", (quad_t) count);
++		reply(213, "%jd", (intmax_t) count);
+ 		break; }
+ 	default:
+ 		reply(504, "SIZE not implemented for Type %c.", "?AEIL"[type]);
+--- linux-ftpd-0.17.orig/ftpd/ftpd.8
++++ linux-ftpd-0.17/ftpd/ftpd.8
+@@ -67,7 +67,9 @@
+ .It Fl A
+ Permit only anonymous ftp connections or accounts listed in
+ .Pa /etc/ftpchroot.
+-Other connection attempts are refused.
++Other connection attempts are refused.  This option is nolonger effective if
++PAM is enabled.  Please refer to the README file for instructions to doing
++this with PAM.
+ .It Fl d
+ Debugging information is written to the syslog using LOG_FTP.
+ .It Fl D
+@@ -356,6 +358,21 @@
+ .Pa motd ,
+ if present, will be printed after a successful login.
+ These files should be mode 444.
++.It Pa ~ftp/lib
++Make this directory owned by
++.Dq root
++and unwritable by anyone (mode 511).
++The libraries
++.Xr ld-linux.so.2
++and
++.Xr libc.so.6
++(or whatever your
++.Xr ls
++command is linked to)
++must be present.  Note that if you're using a 2.2.* or later Linux kernel,
++.Xr ld-linux.so.2
++must be executable as well as readable (555).  All other files should be mode
++444.
+ .It Pa ~ftp/pub
+ Make this directory mode 555 and owned by
+ .Dq root .
+--- linux-ftpd-0.17.orig/ftpd/ftpd.c
++++ linux-ftpd-0.17/ftpd/ftpd.c
+@@ -80,6 +80,7 @@
+ #include <pwd.h>
+ #include <setjmp.h>
+ #include <signal.h>
++#include <stdint.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -95,8 +96,6 @@
+ #else
+ #include <grp.h>       /* for initgroups() */
+ /* #include <sys/file.h>  * for L_SET et al. * <--- not used? */
+-/*typedef int64_t quad_t;*/
+-typedef unsigned int useconds_t;
+ #endif
+ 
+ #include "../version.h"
+@@ -132,6 +131,16 @@
+ #include <varargs.h>
+ #endif
+ 
++#ifdef USE_PAM
++#include <sys/types.h>
++#include <security/pam_appl.h>
++#include <security/pam_misc.h>
++/* backward compatibility hack for libpam < 0.58 */
++#ifndef PAM_ESTABLISH_CRED
++#define PAM_ESTABLISH_CRED PAM_CRED_ESTABLISH
++#endif
++#endif
++
+ static char versionpre[] = "Version 6.4/OpenBSD/Linux";
+ static char version[sizeof(versionpre)+sizeof(pkg)];
+ 
+@@ -218,29 +227,37 @@
+ char	proctitle[BUFSIZ];	/* initial part of title */
+ #endif /* HASSETPROCTITLE */
+ 
++#ifdef USE_PAM
++static pam_handle_t *pamh;
++static char *PAM_username;
++static char *PAM_password;
++static char *PAM_message;
++static int PAM_accepted;
++#endif
++
+ #define LOGCMD(cmd, file) \
+ 	if (logging > 1) \
+-	    syslog(LOG_INFO,"%s %s%s", cmd, \
++	    syslog(LOG_FTP | LOG_INFO,"%s %s%s", cmd, \
+ 		*(file) == '/' ? "" : curdir(), file);
+ #define LOGCMD2(cmd, file1, file2) \
+ 	 if (logging > 1) \
+-	    syslog(LOG_INFO,"%s %s%s %s%s", cmd, \
++	    syslog(LOG_FTP | LOG_INFO,"%s %s%s %s%s", cmd, \
+ 		*(file1) == '/' ? "" : curdir(), file1, \
+ 		*(file2) == '/' ? "" : curdir(), file2);
+ #define LOGBYTES(cmd, file, cnt) \
+ 	if (logging > 1) { \
+ 		if (cnt == (off_t)-1) \
+-		    syslog(LOG_INFO,"%s %s%s", cmd, \
++		    syslog(LOG_FTP | LOG_INFO,"%s %s%s", cmd, \
+ 			*(file) == '/' ? "" : curdir(), file); \
+ 		else \
+-		    syslog(LOG_INFO, "%s %s%s = %qd bytes", cmd, \
+-			*(file) == '/' ? "" : curdir(), file, (quad_t)(cnt)); \
++		    syslog(LOG_FTP | LOG_INFO, "%s %s%s = %jd bytes", cmd, \
++			*(file) == '/' ? "" : curdir(), file, (intmax_t)(cnt)); \
+ 	}
+ 
+ static void	 ack __P((const char *));
+ static void	 myoob __P((int));
+ static int	 checkuser __P((const char *, const char *));
+-static FILE	*dataconn __P((const char *, off_t, const char *));
++static FILE	*dataconn __P((const char *, off_t, const char *, int));
+ static void	 dolog __P((struct sockaddr_in *));
+ static const char	*curdir __P((void));
+ static void	 end_login __P((void));
+@@ -255,6 +272,7 @@
+ 		 sgetpwnam __P((const char *));
+ static char	*sgetsave __P((char *));
+ static void	 reapchild __P((int));
++static void	 authentication_setup(const char *);
+ 
+ #if defined(TCPWRAPPERS)
+ static int	 check_host __P((struct sockaddr_in *));
+@@ -415,7 +433,7 @@
+ 		 * Detach from parent.
+ 		 */
+ 		if (daemon(1, 1) < 0) {
+-			syslog(LOG_ERR, "failed to become a daemon");
++			syslog(LOG_FTP | LOG_ERR, "failed to become a daemon");
+ 			exit(1);
+ 		}
+ 		(void) signal(SIGCHLD, reapchild);
+@@ -424,7 +442,8 @@
+ 		 */
+ 		sv = getservbyname("ftp", "tcp");
+ 		if (sv == NULL) {
+-			syslog(LOG_ERR, "getservbyname for ftp failed");
++			syslog(LOG_FTP | LOG_ERR,
++			    "getservbyname for ftp failed");
+ 			exit(1);
+ 		}
+ 		/*
+@@ -433,22 +452,22 @@
+ 		 */
+ 		ctl_sock = socket(AF_INET, SOCK_STREAM, 0);
+ 		if (ctl_sock < 0) {
+-			syslog(LOG_ERR, "control socket: %m");
++			syslog(LOG_FTP | LOG_ERR, "control socket: %m");
+ 			exit(1);
+ 		}
+ 		if (setsockopt(ctl_sock, SOL_SOCKET, SO_REUSEADDR,
+ 		    (char *)&on, sizeof(on)) < 0)
+-			syslog(LOG_ERR, "control setsockopt: %m");;
++			syslog(LOG_FTP | LOG_ERR, "control setsockopt: %m");;
+ 		server_addr.sin_family = AF_INET;
+ 		server_addr.sin_addr.s_addr = INADDR_ANY;
+ 		server_addr.sin_port = sv->s_port;
+ 		if (bind(ctl_sock, (struct sockaddr *)&server_addr,
+ 			 sizeof(server_addr))) {
+-			syslog(LOG_ERR, "control bind: %m");
++			syslog(LOG_FTP | LOG_ERR, "control bind: %m");
+ 			exit(1);
+ 		}
+ 		if (listen(ctl_sock, 32) < 0) {
+-			syslog(LOG_ERR, "control listen: %m");
++			syslog(LOG_FTP | LOG_ERR, "control listen: %m");
+ 			exit(1);
+ 		}
+ 		/*
+@@ -478,7 +497,8 @@
+ 		addrlen = sizeof(his_addr);
+ 		if (getpeername(0, (struct sockaddr *)&his_addr,
+ 				&addrlen) < 0) {
+-			syslog(LOG_ERR, "getpeername (%s): %m", argv[0]);
++			syslog(LOG_FTP | LOG_ERR, "getpeername (%s): %m",
++			    argv[0]);
+ 			exit(1);
+ 		}
+ 	}
+@@ -490,29 +510,29 @@
+ 	(void) signal(SIGPIPE, lostconn);
+ 	(void) signal(SIGCHLD, SIG_IGN);
+ 	if (signal(SIGURG, myoob) == SIG_ERR)
+-		syslog(LOG_ERR, "signal: %m");
++		syslog(LOG_FTP | LOG_ERR, "signal: %m");
+ 
+ 	addrlen = sizeof(ctrl_addr);
+ 	if (getsockname(0, (struct sockaddr *)&ctrl_addr, &addrlen) < 0) {
+-		syslog(LOG_ERR, "getsockname (%s): %m", argv[0]);
++		syslog(LOG_FTP | LOG_ERR, "getsockname (%s): %m", argv[0]);
+ 		exit(1);
+ 	}
+ #ifdef IP_TOS
+ 	tos = IPTOS_LOWDELAY;
+ 	if (setsockopt(0, IPPROTO_IP, IP_TOS, (char *)&tos, sizeof(int)) < 0)
+-		syslog(LOG_WARNING, "setsockopt (IP_TOS): %m");
++		syslog(LOG_FTP | LOG_WARNING, "setsockopt (IP_TOS): %m");
+ #endif
+ 	data_source.sin_port = htons(ntohs(ctrl_addr.sin_port) - 1);
+ 
+ 	/* Try to handle urgent data inline */
+ #ifdef SO_OOBINLINE
+ 	if (setsockopt(0, SOL_SOCKET, SO_OOBINLINE, (char *)&on, sizeof(on)) < 0)
+-		syslog(LOG_ERR, "setsockopt: %m");
++		syslog(LOG_FTP | LOG_ERR, "setsockopt: %m");
+ #endif
+ 
+ #ifdef	F_SETOWN
+ 	if (fcntl(fileno(stdin), F_SETOWN, getpid()) == -1)
+-		syslog(LOG_ERR, "fcntl F_SETOWN: %m");
++		syslog(LOG_FTP | LOG_ERR, "fcntl F_SETOWN: %m");
+ #endif
+ 	dolog(&his_addr);
+ 	/*
+@@ -583,13 +603,13 @@
+ 	(void)signo;
+ 
+ 	if (debug)
+-		syslog(LOG_DEBUG, "lost connection");
++		syslog(LOG_FTP | LOG_DEBUG, "lost connection");
+ 	dologout(-1);
+ }
+ 
+ static void sigquit(int signo)
+ {
+-	syslog(LOG_ERR, "got signal %s", strsignal(signo));
++	syslog(LOG_FTP | LOG_ERR, "got signal %s", strsignal(signo));
+ 
+ 	dologout(-1);
+ }
+@@ -658,10 +678,15 @@
+  * requesting login privileges.  Disallow anyone who does not have a standard
+  * shell as returned by getusershell().  Disallow anyone mentioned in the file
+  * _PATH_FTPUSERS to allow people such as root and uucp to be avoided.
++ *
++ * pw maybe unset if we're using PAM and the login turns out to be anonymous.
++ *	-- herbert
+  */
+ void user(char *name)
+ {
++#ifndef USE_PAM
+ 	const char *cp, *shell;
++#endif
+ 
+ 	if (logged_in) {
+ 		if (guest) {
+@@ -674,6 +699,9 @@
+ 		end_login();
+ 	}
+ 
++#ifdef USE_PAM
++	authentication_setup(name);
++#else
+ 	guest = 0;
+ 	if (strcmp(name, "ftp") == 0 || strcmp(name, "anonymous") == 0) {
+ 		if (checkuser(_PATH_FTPUSERS, "ftp") ||
+@@ -687,7 +715,7 @@
+ 		} else
+ 			reply(530, "User %s unknown.", name);
+ 		if (!askpasswd && logging)
+-			syslog(LOG_NOTICE,
++			syslog(LOG_FTP | LOG_NOTICE,
+ 			    "ANONYMOUS FTP LOGIN REFUSED FROM %s", remotehost);
+ 		return;
+ 	}
+@@ -707,17 +735,13 @@
+ 		if (cp == NULL || checkuser(_PATH_FTPUSERS, name)) {
+ 			reply(530, "User %s access denied.", name);
+ 			if (logging)
+-				syslog(LOG_NOTICE,
++				syslog(LOG_FTP | LOG_NOTICE,
+ 				    "FTP LOGIN REFUSED FROM %s, %s",
+ 				    remotehost, name);
+ 			pw = (struct passwd *) NULL;
+ 			return;
+ 		}
+ 	}
+-	if (logging) {
+-		strncpy(curname, name, sizeof(curname)-1);
+-		curname[sizeof(curname)-1] = '\0';
+-	}
+ #ifdef SKEY
+ 	if (!skey_haskey(name)) {
+ 		char *myskey, *skey_keyinfo __P((char *name));
+@@ -728,6 +752,11 @@
+ 	} else
+ #endif
+ 		reply(331, "Password required for %s.", name);
++#endif
++	if (logging) {
++		strncpy(curname, name, sizeof(curname)-1);
++		curname[sizeof(curname)-1] = '\0';
++	}
+ 
+ 	askpasswd = 1;
+ 	/*
+@@ -774,9 +803,19 @@
+ 	sigprocmask (SIG_BLOCK, &allsigs, NULL);
+ 	(void) seteuid((uid_t)0);
+ 	if (logged_in) {
++#ifdef USE_PAM
++		int error;
++		error = pam_close_session(pamh, 0);
++		pam_end(pamh, error);
++		pamh = 0;
++#endif
+ 		ftpdlogwtmp(ttyline, "", "");
+ 		if (doutmp)
+ 			logout(utmp.ut_line);
++#if defined(KERBEROS)
++		if (!notickets && krbtkfile_env)
++			unlink(krbtkfile_env);
++#endif
+ 	}
+ 	pw = NULL;
+ 	logged_in = 0;
+@@ -784,9 +823,211 @@
+ 	dochroot = 0;
+ }
+ 
++#ifdef USE_PAM
++/*
++ * PAM authentication, now using the PAM's async feature.
++ */
++static int PAM_conv (int num_msg, const struct pam_message **msg,
++		     struct pam_response **resp, void *appdata_ptr)
++{
++	struct pam_response *repl = NULL;
++	int retval, count = 0, replies = 0;
++	int size = sizeof(struct pam_response);
++
++#define GET_MEM \
++	if (!(repl = realloc(repl, size))) \
++		return PAM_CONV_ERR; \
++	size += sizeof(struct pam_response)
++#define COPY_STRING(s) (s) ? strdup(s) : NULL
++
++	(void) appdata_ptr;
++	retval = PAM_SUCCESS;
++	for (count = 0; count < num_msg; count++) {
++		int savemsg = 0;
++
++		switch (msg[count]->msg_style) {
++		case PAM_PROMPT_ECHO_ON:
++			GET_MEM;
++			repl[replies].resp_retcode = PAM_SUCCESS;
++			repl[replies].resp = COPY_STRING(PAM_username);
++			replies++;
++			break;
++		case PAM_PROMPT_ECHO_OFF:
++			GET_MEM;
++			if (PAM_password == 0) {
++				savemsg = 1;
++				retval = PAM_CONV_AGAIN;
++			} else {
++				repl[replies].resp_retcode = PAM_SUCCESS;
++				repl[replies].resp = COPY_STRING(PAM_password);
++				replies++;
++			}
++			break;
++		case PAM_TEXT_INFO:
++			savemsg = 1;
++			break;
++		case PAM_ERROR_MSG:
++		default:
++			/* Must be an error of some sort... */
++			retval = PAM_CONV_ERR;
++		}
++
++		if (savemsg) {
++			char *sp;
++
++			if (PAM_message) {
++				/* XXX: make sure we split newlines correctly */
++				lreply(331, "%s", PAM_message);
++				free(PAM_message);
++			}
++			PAM_message = COPY_STRING(msg[count]->msg);
++
++			/* Remove trailing `: ' */
++			sp = PAM_message + strlen(PAM_message);
++			while (sp > PAM_message && strchr(" \t\n:", *--sp))
++				*sp = '\0';
++		}
++
++		/* In case of error, drop responses and return */
++		if (retval) {
++			_pam_drop_reply(repl, replies);
++			return retval;
++		}
++	}
++	if (repl)
++		*resp = repl;
++	return PAM_SUCCESS;
++}
++
++static struct pam_conv PAM_conversation = {
++	&PAM_conv,
++	NULL
++};
++
++static int pam_doit(void)
++{
++	char *user;
++	int error;
++
++	error = pam_authenticate(pamh, 0);
++	if (error == PAM_CONV_AGAIN || error == PAM_INCOMPLETE) {
++		/* Avoid overly terse passwd messages */
++		if (PAM_message && !strcasecmp(PAM_message, "password")) {
++			free(PAM_message);
++			PAM_message = 0;
++		}
++		if (PAM_message == 0) {
++			reply(331, "Password required for %s.", PAM_username);
++		} else {
++			reply(331, "%s", PAM_message);
++			free(PAM_message);
++			PAM_message = 0;
++		}
++		return 1;
++	}
++	if (error == PAM_SUCCESS) {
++		/* Alright, we got it */
++		error = pam_acct_mgmt(pamh, 0);
++		if (error == PAM_SUCCESS)
++			error = pam_open_session(pamh, 0);
++		if (error == PAM_SUCCESS)
++			error = pam_setcred(pamh, PAM_ESTABLISH_CRED);
++		if (error == PAM_SUCCESS)
++			error = pam_get_item(pamh, PAM_USER, (const void **) &user);
++		if (error == PAM_SUCCESS) {
++			if (strcmp(user, "ftp") == 0) {
++				guest = 1;
++			}
++			pw = sgetpwnam(user);
++		}
++		if (error == PAM_SUCCESS && pw)
++			PAM_accepted = 1;
++	}
++
++	return (error == PAM_SUCCESS);
++}
++
++
++static void authentication_setup(const char *username)
++{
++	int error;
++
++	if (pamh != 0) {
++		pam_end(pamh, PAM_ABORT);
++		pamh = 0;
++	}
++
++	if (PAM_username)
++		free(PAM_username);
++	PAM_username = strdup(username);
++	PAM_password = 0;
++	PAM_message  = 0;
++	PAM_accepted = 0;
++
++	error = pam_start("ftp", PAM_username, &PAM_conversation, &pamh);
++	if (error == PAM_SUCCESS)
++		error = pam_set_item(pamh, PAM_RHOST, remotehost);
++	if (error != PAM_SUCCESS) {
++		reply(550, "Authentication failure");
++		pam_end(pamh, error);
++		pamh = 0;
++	}
++
++	if (pamh && !pam_doit())
++		reply(550, "Authentication failure");
++}
++
++static int authenticate(char *passwd)
++{
++	if (PAM_accepted)
++		return 1;
++
++	if (pamh == 0)
++		return 0;
++
++	PAM_password = passwd;
++	pam_doit();
++	PAM_password = 0;
++	return PAM_accepted;
++}
++
++#else /* !USE_PAM */
++static int authenticate(char *passwd)
++{
++	if (pw == NULL) {
++		useconds_t us;
++
++		/* Sleep between 1 and 3 seconds to emulate a crypt. */
++#ifndef __linux__
++		us = arc4random() % 3000000;
++#else
++		us = random() % 3000000;
++#endif
++		usleep(us);
++		return 0;
++	}
++
++#if defined(KERBEROS)
++	if (klogin(pw, "", hostname, passwd) == 0)
++		return 1;
++#endif
++#ifdef SKEY
++	if (skey_haskey(pw->pw_name) == 0 &&
++	   (skey_passcheck(pw->pw_name, passwd) != -1))
++		return 1;
++#endif
++	/* the strcmp does not catch null passwords! */
++	if (pw == NULL || *pw->pw_passwd == '\0' ||
++	    strcmp(crypt(passwd, pw->pw_passwd), pw->pw_passwd))
++		return 0;	 /* failure */
++
++	return 1;
++}
++#endif /* !USE_PAM */
++
++
+ void pass(char *passwd)
+ {
+-	int rval;
+ 	FILE *fd;
+ 	static char homedir[MAXPATHLEN];
+ 	char rootdir[MAXPATHLEN];
+@@ -797,84 +1038,54 @@
+ 		return;
+ 	}
+ 	askpasswd = 0;
++#ifndef USE_PAM
+ 	if (!guest) {		/* "ftp" is only account allowed no password */
+-		if (pw == NULL) {
+-			useconds_t us;
+-
+-			/* Sleep between 1 and 3 seconds to emulate a crypt. */
+-#ifndef __linux__
+-			us = arc4random() % 3000000;
+-#else
+-			us = random() % 3000000;
+-#endif
+-			usleep(us);
+-			rval = 1;	/* failure below */
+-			goto skip;
+-		}
+-#if defined(KERBEROS)
+-		rval = klogin(pw, "", hostname, passwd);
+-		if (rval == 0)
+-			goto skip;
+-#endif
+-#ifdef SKEY
+-		if (skey_haskey(pw->pw_name) == 0 &&
+-		   (skey_passcheck(pw->pw_name, passwd) != -1)) {
+-			rval = 0;
+-			goto skip;
+-		}
+ #endif
+-		/* the strcmp does not catch null passwords! */
+-		if (strcmp(crypt(passwd, pw->pw_passwd), pw->pw_passwd) ||
+-		    *pw->pw_passwd == '\0') {
+-			rval = 1;	 /* failure */
+-			goto skip;
+-		}
+-		rval = 0;
+-
+-skip:
+ 		/*
+-		 * If rval == 1, the user failed the authentication check
+-		 * above.  If rval == 0, either Kerberos or local authentication
+-		 * succeeded.
++		 * Try to authenticate the user
+ 		 */
+-		if (rval) {
++		if (!authenticate(passwd)) {
+ 			reply(530, "Login incorrect.");
+ 			if (logging)
+-				syslog(LOG_NOTICE,
++				syslog(LOG_FTP | LOG_NOTICE,
+ 				    "FTP LOGIN FAILED FROM %s, %s",
+ 				    remotehost, curname);
+ 			pw = NULL;
+ 			if (login_attempts++ >= 5) {
+-				syslog(LOG_NOTICE,
++				syslog(LOG_FTP | LOG_NOTICE,
+ 				    "repeated login failures from %s",
+ 				    remotehost);
+ 				exit(0);
+ 			}
+ 			return;
+ 		}
++#ifdef USE_PAM
++	if (guest) {
++#else
+ 	} else {
++#endif
+ 		/* Save anonymous' password. */
+ 		guestpw = strdup(passwd);
+ 		if (guestpw == (char *)NULL)
+ 			fatal("Out of memory");
+ 	}
+ 	login_attempts = 0;		/* this time successful */
+-#ifdef USE_SHADOW
++#if defined(USE_SHADOW) && !defined(USE_PAM)
+ 	switch (isexpired(spw)) {
+ 	  case 0: /* success */
+ 		break;
+ 	  case 1:
+-		syslog(LOG_NOTICE, "expired password from %s, %s",
++		syslog(LOG_FTP | LOG_NOTICE, "expired password from %s, %s",
+ 		       remotehost, pw->pw_name);
+ 		reply(530, "Please change your password and try again.");
+ 		return;
+ 	  case 2:
+-       		syslog(LOG_NOTICE, "inactive login from %s, %s",
++       		syslog(LOG_FTP | LOG_NOTICE, "inactive login from %s, %s",
+ 		       remotehost, pw->pw_name);
+ 		reply(530, "Login inactive -- contact administrator.");
+ 		return;
+ 	  case 3:
+-		syslog(LOG_NOTICE, "expired login from %s, %s",
++		syslog(LOG_FTP | LOG_NOTICE, "expired login from %s, %s",
+ 		       remotehost, pw->pw_name);
+ 		reply(530, "Account expired -- contact administrator.");
+ 		return;
+@@ -991,7 +1202,8 @@
+ 		setproctitle("%s", proctitle);
+ #endif /* HASSETPROCTITLE */
+ 		if (logging)
+-			syslog(LOG_INFO, "ANONYMOUS FTP LOGIN FROM %s, %s",
++			syslog(LOG_FTP | LOG_INFO,
++			    "ANONYMOUS FTP LOGIN FROM %s, %s",
+ 			    remotehost, passwd);
+ 	} else {
+ 		reply(230, "User %s logged in.", pw->pw_name);
+@@ -1001,7 +1213,7 @@
+ 		setproctitle("%s", proctitle);
+ #endif /* HASSETPROCTITLE */
+ 		if (logging)
+-			syslog(LOG_INFO, "FTP LOGIN FROM %s as %s",
++			syslog(LOG_FTP | LOG_INFO, "FTP LOGIN FROM %s as %s",
+ 			    remotehost, pw->pw_name);
+ 	}
+ 	(void) umask(defumask);
+@@ -1064,7 +1276,7 @@
+ 			goto done;
+ 		}
+ 	}
+-	dout = dataconn(name, st.st_size, "w");
++	dout = dataconn(name, st.st_size, "w", 0);
+ 	if (dout == NULL)
+ 		goto done;
+ 	time(&start);
+@@ -1088,6 +1300,9 @@
+ 	struct stat st;
+ 	int fd;
+ 
++	if (restart_point && *mode != 'a')
++		mode = "r+";
++
+ 	if (unique && stat(name, &st) == 0) {
+ 		char *nam;
+ 
+@@ -1097,8 +1312,6 @@
+ 			return;
+ 		}
+ 		name = nam;
+-		if (restart_point)
+-			mode = "r+";
+ 		fout = fdopen(fd, mode);
+ 	} else
+ 		fout = fopen(name, mode);
+@@ -1139,7 +1352,7 @@
+ 			goto done;
+ 		}
+ 	}
+-	din = dataconn(name, (off_t)-1, "r");
++	din = dataconn(name, (off_t)-1, "r", unique);
+ 	if (din == NULL)
+ 		goto done;
+ 	if (receive_data(din, fout) == 0) {
+@@ -1194,7 +1407,7 @@
+ #ifdef IP_TOS
+ 	on = IPTOS_THROUGHPUT;
+ 	if (setsockopt(s, IPPROTO_IP, IP_TOS, (char *)&on, sizeof(int)) < 0)
+-		syslog(LOG_WARNING, "setsockopt (IP_TOS): %m");
++		syslog(LOG_FTP | LOG_WARNING, "setsockopt (IP_TOS): %m");
+ #endif
+ #ifdef TCP_NOPUSH
+ 	/*
+@@ -1205,13 +1418,13 @@
+ 	 */
+ 	on = 1;
+ 	if (setsockopt(s, IPPROTO_TCP, TCP_NOPUSH, (char *)&on, sizeof on) < 0)
+-		syslog(LOG_WARNING, "setsockopt (TCP_NOPUSH): %m");
++		syslog(LOG_FTP | LOG_WARNING, "setsockopt (TCP_NOPUSH): %m");
+ #endif
+ #if 0 /* Respect the user's settings */
+ #ifdef SO_SNDBUF
+ 	on = 65536;
+ 	if (setsockopt(s, SOL_SOCKET, SO_SNDBUF, (char *)&on, sizeof on) < 0)
+-		syslog(LOG_WARNING, "setsockopt (SO_SNDBUF): %m");
++		syslog(LOG_FTP | LOG_WARNING, "setsockopt (SO_SNDBUF): %m");
+ #endif
+ #endif
+ 
+@@ -1227,7 +1440,7 @@
+ 	return (NULL);
+ }
+ 
+-static FILE * dataconn(const char *name, off_t size, const char *mode)
++static FILE * dataconn(const char *name, off_t size, const char *mode, int stou)
+ {
+ 	char sizebuf[32];
+ 	FILE *file;
+@@ -1236,8 +1449,8 @@
+ 	file_size = size;
+ 	byte_count = 0;
+ 	if (size != (off_t) -1) {
+-		(void) snprintf(sizebuf, sizeof(sizebuf), " (%lld bytes)", 
+-				(quad_t) size);
++		(void) snprintf(sizebuf, sizeof(sizebuf), " (%jd bytes)", 
++				(intmax_t) size);
+ 	} else
+ 		sizebuf[0] = '\0';
+ 	if (pdata >= 0) {
+@@ -1262,6 +1475,7 @@
+ 			pdata = -1;
+ 			return (NULL);
+ 		}
++#ifdef BREAKRFC
+ 		if (from.sin_addr.s_addr != his_addr.sin_addr.s_addr) {
+ 			perror_reply(435, "Can't build data connection"); 
+ 			(void) close(pdata);
+@@ -1269,6 +1483,7 @@
+ 			pdata = -1;
+ 			return (NULL);
+ 		}
++#endif
+ 		(void) close(pdata);
+ 		pdata = s;
+ #ifdef IP_TOS
+@@ -1276,13 +1491,24 @@
+ 		(void) setsockopt(s, IPPROTO_IP, IP_TOS, (char *)&tos,
+ 		    sizeof(int));
+ #endif
+-		reply(150, "Opening %s mode data connection for '%s'%s.",
+-		     type == TYPE_A ? "ASCII" : "BINARY", name, sizebuf);
++		if (stou) {
++			reply(150, "FILE: %s", name);
++		} else {
++			reply(150,
++			      "Opening %s mode data connection for '%s'%s.",
++			      type == TYPE_A ? "ASCII" : "BINARY", name,
++			      sizebuf);
++		}
+ 		return (fdopen(pdata, mode));
+ 	}
+ 	if (data >= 0) {
+-		reply(125, "Using existing data connection for '%s'%s.",
+-		    name, sizebuf);
++		if (stou) {
++			reply(125, "FILE: %s", name);
++		} else {
++			reply(125,
++			      "Using existing data connection for '%s'%s.",
++			      name, sizebuf);
++		}
+ 		usedefault = 1;
+ 		return (fdopen(data, mode));
+ 	}
+@@ -1309,12 +1535,14 @@
+ 		data = -1;
+ 		return NULL;
+ 	}
++#ifdef BREAKRFC
+ 	if (data_dest.sin_addr.s_addr != his_addr.sin_addr.s_addr) {
+ 		perror_reply(435, "Can't build data connection");
+ 		(void) fclose(file);
+ 		data = -1;
+ 		return NULL;
+ 	}
++#endif
+ 	while (connect(data, (struct sockaddr *)&data_dest,
+ 	    sizeof(data_dest)) < 0) {
+ 		if (errno == EADDRINUSE && retry < swaitmax) {
+@@ -1327,8 +1555,14 @@
+ 		data = -1;
+ 		return (NULL);
+ 	}
+-	reply(150, "Opening %s mode data connection for '%s'%s.",
+-	     type == TYPE_A ? "ASCII" : "BINARY", name, sizebuf);
++	if (stou) {
++		reply(150, "FILE: %s", name);
++	} else {
++		reply(150,
++		      "Opening %s mode data connection for '%s'%s.",
++		      type == TYPE_A ? "ASCII" : "BINARY", name,
++		      sizebuf);
++	}
+ 	return (file);
+ }
+ 
+@@ -1383,7 +1617,7 @@
+ 			buf = mmap(0, filesize, PROT_READ, MAP_SHARED, filefd,
+ 				   (off_t)0);
+ 			if (buf==MAP_FAILED || buf==NULL) {
+-				syslog(LOG_WARNING, "mmap(%lu): %m",
++				syslog(LOG_FTP | LOG_WARNING, "mmap(%lu): %m",
+ 				       (unsigned long)filesize);
+ 				goto oldway;
+ 			}
+@@ -1655,8 +1889,8 @@
+ 	(void)printf("\r\n");
+ 	(void)fflush(stdout);
+ 	if (debug) {
+-		syslog(LOG_DEBUG, "<--- %d ", n);
+-		vsyslog(LOG_DEBUG, fmt, ap);
++		syslog(LOG_FTP | LOG_DEBUG, "<--- %d ", n);
++		vsyslog(LOG_FTP | LOG_DEBUG, fmt, ap);
+ 	}
+ }
+ 
+@@ -1681,8 +1915,8 @@
+ 	(void)printf("\r\n");
+ 	(void)fflush(stdout);
+ 	if (debug) {
+-		syslog(LOG_DEBUG, "<--- %d- ", n);
+-		vsyslog(LOG_DEBUG, fmt, ap);
++		syslog(LOG_FTP | LOG_DEBUG, "<--- %d- ", n);
++		vsyslog(LOG_FTP | LOG_DEBUG, fmt, ap);
+ 	}
+ }
+ 
+@@ -1758,15 +1992,21 @@
+ 
+ void replydirname(const char *name, const char *message)
+ {
++	char *p, *ep;
+ 	char npath[MAXPATHLEN];
+-	int i;
+ 
+-	for (i = 0; *name != '\0' && i < (int)sizeof(npath) - 1; i++, name++) {
+-		npath[i] = *name;
+-		if (*name == '"')
+-			npath[++i] = '"';
++	p = npath;
++	ep = &npath[sizeof(npath) - 1];
++	while (*name) {
++		if (*name == '"' && ep - p >= 2) {
++			*p++ = *name++;
++			*p++ = '"';
++		} else if (ep - p >= 1)
++			*p++ = *name++;
++		else
++			break;
+ 	}
+-	npath[i] = '\0';
++	*p = '\0';
+ 	reply(257, "\"%s\" %s", npath, message);
+ }
+ 
+@@ -1838,7 +2078,7 @@
+ #endif /* HASSETPROCTITLE */
+ 
+ 	if (logging)
+-		syslog(LOG_INFO, "connection from %s", remotehost);
++		syslog(LOG_FTP | LOG_INFO, "connection from %s", remotehost);
+ }
+ 
+ /*
+@@ -1847,22 +2087,8 @@
+  */
+ void dologout(int status)
+ {
+-	sigset_t allsigs;
+-
+ 	transflag = 0;
+-
+-	if (logged_in) {
+-		sigfillset(&allsigs);
+-		sigprocmask(SIG_BLOCK, &allsigs, NULL);
+-		(void) seteuid((uid_t)0);
+-		ftpdlogwtmp(ttyline, "", "");
+-		if (doutmp)
+-			logout(utmp.ut_line);
+-#if defined(KERBEROS)
+-		if (!notickets && krbtkfile_env)
+-			unlink(krbtkfile_env);
+-#endif
+-	}
++	end_login();
+ 	/* beware of flushing buffers after a SIGPIPE */
+ 	_exit(status);
+ }
+@@ -1891,11 +2117,11 @@
+ 	}
+ 	if (strcmp(cp, "STAT\r\n") == 0) {
+ 		if (file_size != (off_t) -1)
+-			reply(213, "Status: %qd of %qd bytes transferred",
+-			    (quad_t) byte_count, (quad_t) file_size);
++			reply(213, "Status: %jd of %jd bytes transferred",
++			    (intmax_t) byte_count, (intmax_t) file_size);
+ 		else
+-			reply(213, "Status: %qd bytes transferred", 
+-			    (quad_t)byte_count);
++			reply(213, "Status: %jd bytes transferred", 
++			    (intmax_t)byte_count);
+ 	}
+ 	errno = save_errno;
+ }
+@@ -2101,7 +2327,7 @@
+ 
+ 		if (S_ISREG(st.st_mode)) {
+ 			if (dout == NULL) {
+-				dout = dataconn("file list", (off_t)-1, "w");
++				dout = dataconn("file list", (off_t)-1, "w", 0);
+ 				if (dout == NULL)
+ 					goto out;
+ 				transflag++;
+@@ -2143,7 +2369,7 @@
+ 			    S_ISREG(st.st_mode))) {
+ 				if (dout == NULL) {
+ 					dout = dataconn("file list", (off_t)-1,
+-						"w");
++						"w", 0);
+ 					if (dout == NULL)
+ 						goto out;
+ 					transflag++;
+@@ -2238,13 +2464,15 @@
+ 
+ 	if (hp) {
+ 		if (!hosts_ctl("ftpd", hp->h_name, addr, STRING_UNKNOWN)) {
+-			syslog(LOG_NOTICE, "tcpwrappers rejected: %s [%s]",
++			syslog(LOG_FTP | LOG_NOTICE,
++			    "tcpwrappers rejected: %s [%s]",
+ 			    hp->h_name, addr);
+ 			return (0);
+ 		}
+ 	} else {
+ 		if (!hosts_ctl("ftpd", STRING_UNKNOWN, addr, STRING_UNKNOWN)) {
+-			syslog(LOG_NOTICE, "tcpwrappers rejected: [%s]", addr);
++			syslog(LOG_FTP | LOG_NOTICE,
++			    "tcpwrappers rejected: [%s]", addr);
+ 			return (0);
+ 		}
+ 	}
+--- linux-ftpd-0.17.orig/ftpd/logwtmp.c
++++ linux-ftpd-0.17/ftpd/logwtmp.c
+@@ -41,7 +41,6 @@
+   "$Id: logwtmp.c,v 1.5 1999/07/16 00:34:29 dholland Exp $";
+ 
+ #include <sys/types.h>
+-#include <sys/time.h>
+ #include <sys/stat.h>
+ 
+ #include <fcntl.h>
+@@ -49,6 +48,7 @@
+ #include <unistd.h>
+ #include <stdio.h>
+ #include <string.h>
++#include <time.h>
+ #include "extern.h"
+ 
+ static int fd = -1;
+--- linux-ftpd-0.17.orig/support/Makefile
++++ linux-ftpd-0.17/support/Makefile
+@@ -1,6 +1,6 @@
+ include ../MCONFIG
+ 
+-OBJS=daemon.o setproctitle.o isexpired.o vis.o
++OBJS=setproctitle.o isexpired.o vis.o
+ 
+ all: libsupport.a
+ 
+@@ -16,4 +16,3 @@
+ 	rm -f *.o libsupport.a
+ 
+ setproctitle.o: setproctitle.h
+-daemon.o: daemon.h
+--- linux-ftpd-0.17.orig/support/setproctitle.c
++++ linux-ftpd-0.17/support/setproctitle.c
+@@ -139,7 +139,7 @@
+ 	(void) strcpy(Argv[0], buf);
+ 	p = &Argv[0][i];
+ 	while (p < LastArgv)
+-		*p++ = ' ';
++		*p++ = '\0';
+ 	Argv[1] = NULL;
+ }
+ 

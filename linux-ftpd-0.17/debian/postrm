@@ -1,0 +1,12 @@
+#!/bin/sh
+# $Id: postrm,v 1.1 1999/04/16 07:00:28 herbert Exp $
+
+set -e
+
+if [ "$1" = purge ]; then
+	if command -v update-inetd >/dev/null 2>&1; then
+		update-inetd --pattern '/usr/sbin/in\.ftpd' --remove "#<off># ftp"
+	fi
+fi
+
+#DEBHELPER#

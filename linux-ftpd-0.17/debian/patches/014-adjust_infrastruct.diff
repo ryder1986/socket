@@ -1,0 +1,16 @@
+Description: Corrections to infrastructure for builds.
+ Insert harmless omission that eases tailored builds.
+Author: Mats Erik Andersson <debian@gisladisker.se>
+Forwarded: no
+Last-Update: 2010-04-26
+--- linux-ftpd-0.17.debian/ftpd/Makefile
++++ linux-ftpd-0.17/ftpd/Makefile
+@@ -26,7 +26,7 @@
+ 	-mv -f y.tab.c $@
+ 
+ ftpd: $(OBJS)
+-	$(CC) $(LDFLAGS) $^ $(LIBS) -o $@
++	$(CC) $(LDFLAGS) $^ $(LIBS) $(LDADD) -o $@
+ 
+ install: ftpd
+ 	install -s -m$(DAEMONMODE) ftpd $(INSTALLROOT)$(SBINDIR)/in.ftpd

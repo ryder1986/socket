@@ -1,0 +1,37 @@
+Description: Support GNU/Hurd.
+ Since MAXPATHLEN and MAXHOSTNAMELEN are not prescribed
+ by POSIX, GNU/Hurd need not specify these. Thus they are
+ now assigned the default values as used on BSD systems.
+Author: Mats Erik Andersson <debian@gisladisker.se>
+Forwarded: no
+Last-Update: 2012-03-29
+
+--- linux-ftpd-0.17.debian/ftpd/ftpd.c
++++ linux-ftpd-0.17/ftpd/ftpd.c
+@@ -141,6 +141,17 @@
+ #endif
+ #endif
+ 
++/* POSIX does not requires these values, so GNU/Hurd
++ * needs them specified. They only occur statically.
++ * Use the BSD convention for these values. */
++#ifndef MAXPATHLEN
++# define MAXPATHLEN 1024
++#endif
++
++#ifndef MAXHOSTNAMELEN
++# define MAXHOSTNAMELEN 256
++#endif
++
+ static char versionpre[] = "Version 6.4/OpenBSD/Linux";
+ static char version[sizeof(versionpre)+sizeof(pkg)];
+ 
+@@ -1314,7 +1325,7 @@
+ 	/*
+ 	 * Set home directory so that use of ~ (tilde) works correctly.
+ 	 */
+-	if (getcwd(homedir, MAXPATHLEN) != NULL)
++	if (getcwd(homedir, sizeof homedir) != NULL)
+ 		setenv("HOME", homedir, 1);
+ 
+ 	/*

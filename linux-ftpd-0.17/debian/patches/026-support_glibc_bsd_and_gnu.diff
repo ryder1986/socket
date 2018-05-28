@@ -1,0 +1,243 @@
+Description: Implement changes to support GNU/Hurd and GNU/kfreebsd.
+ Several conditionals on '__linux__' are altered to react identical
+ to '__GLIBC__' and '__GNU__'. This should produce working code
+ also for the Debian ports GNU/kfreebsd and GNU/Hurd.
+ .
+ GNU/kfreebsd uses distinct options IP_PORTRANGE and IPV6_PORTRANGE
+ depending on address family.
+ .
+ Use IP_TOS only for IPv4 when compiling for non-Linux.
+Author: Mats Erik Andersson <debian@gisladisker.se>
+Forwarded: not-needed
+Last-Update: 2010-05-25
+--- linux-ftpd-0.17.debian/ftpd/extern.h
++++ linux-ftpd-0.17/ftpd/extern.h
+@@ -74,7 +74,7 @@ struct utmp;
+ void login(const struct utmp *);
+ int logout(const char *line);
+ 
+-#ifdef __linux__
++#if defined(__linux__) || defined(__GLIBC__) || defined(__GNU__)
+ #include "daemon.h"
+ #include "setproctitle.h"
+ #endif
+--- linux-ftpd-0.17.debian/ftpd/ftpcmd.y
++++ linux-ftpd-0.17/ftpd/ftpcmd.y
+@@ -67,7 +67,7 @@ char ftpcmd_rcsid[] =
+ #include <time.h>
+ #include <unistd.h>
+ 
+-#ifndef __linux__
++#if !defined(__linux__) && !defined(__GLIBC__) && !defined(__GNU__)
+ #include <tzfile.h>
+ #else
+ #define TM_YEAR_BASE 1900
+@@ -851,7 +851,7 @@ pathname
+ 			 */
+ 			if (logged_in && $1 && strchr($1, '~') != NULL) {
+ 				glob_t gl;
+-#ifdef __linux__
++#if defined(__linux__) || defined(__GLIBC__) || defined(__GNU__)
+ 				/* see popen.c */
+ 				int flags = GLOB_NOCHECK;
+ #else
+--- linux-ftpd-0.17.debian/ftpd/ftpd.c
++++ linux-ftpd-0.17/ftpd/ftpd.c
+@@ -49,7 +49,7 @@ char copyright[] =
+  * FTP server.
+  */
+ 
+-#ifdef __linux__
++#if defined(__linux__) || defined(__GLIBC__) || defined(__GNU__)
+ #define _GNU_SOURCE
+ #endif
+ 
+@@ -90,7 +90,7 @@ char copyright[] =
+ #include <unistd.h>
+ #include <utmp.h>
+ 
+-#ifndef __linux__
++#if !defined( __linux__) && !defined(__GLIBC__) && !defined(__GNU__)
+ #include <util.h>
+ #include <err.h>
+ #else
+@@ -284,7 +284,7 @@ static int	 check_host __P((struct socka
+ 
+ void logxfer __P((const char *, off_t, time_t));
+ 
+-#ifdef __linux__
++#if defined(__linux__) || defined(__GLIBC__) || defined(__GNU__)
+ static void warnx(const char *format, ...) 
+ {
+ 	va_list ap;
+@@ -376,7 +376,7 @@ main(int argc, char *argv[], char **envp
+ 	const char *argstr = "AdDhlMnSt:T:u:UvP46";
+ 	struct addrinfo hints, *aiptr;
+ 
+-#ifdef __linux__
++#if defined(__linux__) || defined(__GLIBC__) || defined(__GNU__)
+ 	initsetproctitle(argc, argv, envp);
+ 	srandom(time(NULL)^(getpid()<<8));
+ 
+@@ -627,9 +627,16 @@ main(int argc, char *argv[], char **envp
+ 	}
+ #ifdef IP_TOS
+ 	tos = IPTOS_LOWDELAY;
++#  if defined(__GLIBC__) && ! defined(__linux__)
++	if ( (his_addr.ss_family == AF_INET)
++		&& (setsockopt(0, IPPROTO_IP, IP_TOS, (char *)&tos,
++				sizeof(int)) < 0) )
++		syslog(LOG_FTP | LOG_WARNING, "setsockopt (IP_TOS): %m");
++#  else /* __linux__ */
+ 	if (setsockopt(0, IPPROTO_IP, IP_TOS, (char *)&tos, sizeof(int)) < 0)
+ 		syslog(LOG_FTP | LOG_WARNING, "setsockopt (IP_TOS): %m");
+-#endif
++#  endif /* GNU/kfreebsd */
++#endif /* IP_TOS */
+ 	data_port = get_port((struct sockaddr *) &ctrl_addr) - 1;
+ 
+ 	/* Try to handle urgent data inline */
+@@ -1108,7 +1115,7 @@ static int authenticate(char *passwd)
+ 		useconds_t us;
+ 
+ 		/* Sleep between 1 and 3 seconds to emulate a crypt. */
+-#ifndef __linux__
++#if !defined(__linux__) && !defined(__GLIBC__) && !defined(__GNU__)
+ 		us = arc4random() % 3000000;
+ #else
+ 		us = random() % 3000000;
+@@ -1549,9 +1556,16 @@ static FILE * getdatasock(const char *mo
+ 
+ #ifdef IP_TOS
+ 	on = IPTOS_THROUGHPUT;
++#  if defined(__GLIBC__) && ! defined(__linux__)
++	if ( (his_addr.ss_family == AF_INET)
++		&& (setsockopt(s, IPPROTO_IP, IP_TOS, (char *)&on,
++				sizeof(on)) < 0) )
++		syslog(LOG_FTP | LOG_WARNING, "setsockopt (IP_TOS): %m");
++#  else /* __linux__ */
+ 	if (setsockopt(s, IPPROTO_IP, IP_TOS, (char *)&on, sizeof(int)) < 0)
+ 		syslog(LOG_FTP | LOG_WARNING, "setsockopt (IP_TOS): %m");
+-#endif
++#  endif /* GNU/kfreebsd */
++#endif /* IP_TOS */
+ #ifdef TCP_NOPUSH
+ 	/*
+ 	 * Turn off push flag to keep sender TCP from sending short packets
+@@ -1634,7 +1648,7 @@ static FILE * dataconn(const char *name,
+ #ifdef IP_TOS
+ 		tos = IPTOS_THROUGHPUT;
+ 		(void) setsockopt(s, IPPROTO_IP, IP_TOS, (char *)&tos,
+-		    sizeof(int));
++		    sizeof(int)); /* Errors silently ignored: GNU/kfreebsd. */
+ #endif
+ 		if (stou) {
+ 			reply(150, "FILE: %s", name);
+@@ -2347,10 +2361,17 @@ void passive(void)
+ 	memcpy(&pasv_addr, &ctrl_addr, sizeof(pasv_addr));
+ 
+ #ifdef IP_PORTRANGE
+-	on = high_data_ports ? IP_PORTRANGE_HIGH : IP_PORTRANGE_DEFAULT;
+-	if (setsockopt(pdata, IPPROTO_IP, IP_PORTRANGE,
+-		       (char *)&on, sizeof(on)) < 0)
+-		goto pasv_error;
++	if (his_addr.ss_family == AF_INET6) {
++		on = high_data_ports ? IPV6_PORTRANGE_HIGH : IPV6_PORTRANGE_DEFAULT;
++		if (setsockopt(pdata, IPPROTO_IPV6, IPV6_PORTRANGE,
++			       (char *)&on, sizeof(on)) < 0)
++			goto pasv_error;
++	} else {
++		on = high_data_ports ? IP_PORTRANGE_HIGH : IP_PORTRANGE_DEFAULT;
++		if (setsockopt(pdata, IPPROTO_IP, IP_PORTRANGE,
++			       (char *)&on, sizeof(on)) < 0)
++			goto pasv_error;
++	}
+ #else
+ #define FTP_DATA_BOTTOM 40000
+ #define FTP_DATA_TOP    44999
+@@ -2564,7 +2585,7 @@ void send_file_list(const char *whichf)
+ 
+ 	/* XXX: should the { go away if __linux__? */
+ 	if (strpbrk(whichf, "~{[*?") != NULL) {
+-#ifdef __linux__
++#if defined(__linux__) || defined(__GLIBC__) || defined(__GNU__)
+ 	        /* see popen.c */
+ 		int flags = GLOB_NOCHECK;
+ #else
+@@ -2634,7 +2655,7 @@ void send_file_list(const char *whichf)
+ 		while ((dir = readdir(dirp)) != NULL) {
+ 			char nbuf[MAXPATHLEN];
+ 
+-#ifdef __linux__
++#if defined(__linux__) || defined(__GLIBC__) || defined(__GNU__)
+ 			if (!strcmp(dir->d_name, "."))
+ 				continue;
+ 			if (!strcmp(dir->d_name, ".."))
+--- linux-ftpd-0.17.debian/ftpd/logutmp.c
++++ linux-ftpd-0.17/ftpd/logutmp.c
+@@ -47,14 +47,14 @@ char logutmp_rcsid[] =
+ #include <utmp.h>
+ #include <stdio.h>
+ #include <string.h>
+-#ifndef __linux__
++#if !defined(__linux__) && !defined(__GLIBC__) && !defined(__GNU__)
+ #include <ttyent.h>
+ #endif
+ #include "extern.h"
+ 
+ typedef struct utmp UTMP;
+ 
+-#ifndef __linux__
++#if !defined(__linux__) && !defined(__GLIBC__) && !defined(__GNU__)
+ static int fd = -1;
+ static int topslot = -1;
+ #endif
+@@ -67,7 +67,7 @@ static int topslot = -1;
+ void
+ login(const UTMP *ut)
+ {
+-#ifndef __linux__
++#if !defined(__linux__) && !defined(__GLIBC__) && !defined(__GNU__)
+ 	UTMP ubuf;
+ 
+ 	/*
+@@ -110,7 +110,7 @@ login(const UTMP *ut)
+ int
+ logout(register const char *line)
+ {
+-#ifndef __linux__
++#if !defined(__linux__) && !defined(__GLIBC__) && !defined(__GNU__)
+ 	UTMP ut;
+ 	int rval;
+ 
+--- linux-ftpd-0.17.debian/ftpd/popen.c
++++ linux-ftpd-0.17/ftpd/popen.c
+@@ -102,7 +102,7 @@ ftpd_popen(char *program, const char *ty
+ 	gargv[0] = argv[0];
+ 	for (gargc = argc = 1; argv[argc]; argc++) {
+ 		glob_t gl;
+-#ifdef __linux__
++#if defined(__linux__) || defined(__GLIBC__) || defined(__GNU__)
+ 		/* 
+ 		 * GLOB_QUOTE is default behavior. GLOB_BRACE and GLOB_TILDE
+ 		 * aren't available...
+@@ -177,7 +177,7 @@ ftpd_popen(char *program, const char *ty
+ 		if ( setgid(getegid())	!= 0 ) _exit(1);
+ 		if ( setuid(i)		!= 0 ) _exit(1);
+  
+-#ifndef __linux__
++#if !defined(__linux__) && !defined(__GLIBC__) && !defined(__GNU__)
+ /* 
+  * Not yet. Porting BSD ls to Linux would be a big and irritating job,
+  * and we can't use GNU ls because of licensing. 
+--- linux-ftpd-0.17.debian/support/vis.c
++++ linux-ftpd-0.17/support/vis.c
+@@ -40,7 +40,7 @@ char vis_rcsid[] = \
+ #include <sys/types.h>
+ #include <limits.h>
+ #include <ctype.h>
+-#ifndef __linux__
++#if !defined(__linux__) && !defined(__GLIBC__) && !defined(__GNU__)
+ #include <vis.h>
+ #else
+ #include "vis.h"

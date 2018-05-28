@@ -1,0 +1,24 @@
+Source: linux-ftpd
+Section: net
+Priority: extra
+Maintainer: Mats Erik Andersson <mats.andersson@gisladisker.se>
+Uploaders: Alberto Gonzalez Iniesta <agi@inittab.org>
+Build-Depends: bison, debhelper (>= 9), libpam0g-dev | libpam-dev
+Standards-Version: 3.9.6
+Homepage: http://ftp.uk.linux.org/pub/linux/Networking/netkit/
+
+Package: ftpd
+Architecture: any
+Depends: openbsd-inetd | inet-superserver, libpam-modules, ${shlibs:Depends}, ${misc:Depends}
+Provides: ftp-server
+Conflicts: ftp-server
+Replaces: netstd
+Description: File Transfer Protocol (FTP) server
+ This is the netkit ftp server. You are recommended to use one of its
+ alternatives, such as vsftpd, proftpd, or pure-ftpd.
+ .
+ This server supports IPv6, and can be used in standalone mode as well
+ as in inetd-slave mode, but other servers have better long-term
+ security screening.
+ .
+ The server can be used with GNU/Linux, GNU/kFreeBSD, and GNU/Hurd.

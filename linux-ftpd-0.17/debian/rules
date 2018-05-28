@@ -1,0 +1,83 @@
+#!/usr/bin/make -f
+# Sample debian/rules that uses debhelper. GNU copyright 1997 by Joey Hess.
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+CDEFS := -D_FILE_OFFSET_BITS=64 -g
+LDDEFS := -Wl,-z,defs -Wl,--as-needed
+
+build: build-arch build-indep
+build-arch: build-stamp
+build-indep: build-stamp
+build-stamp:
+	dh_testdir
+
+	if [ ! -f MCONFIG ]; then \
+		USE_PAM=1 ./configure; \
+		sed -e 's/^CFLAGS=\(.*\)$$/CFLAGS=$(CDEFS) \1 -fno-strict-aliasing/' \
+		    -e 's/^LDFLAGS=\(.*\)$$/LDFLAGS=$(LDDEFS) \1/' \
+			MCONFIG > MCONFIG.new; \
+		mv MCONFIG.new MCONFIG; \
+		echo CFLAGS+=-DUSE_PAM=1 \
+			`dpkg-buildflags --get CFLAGS` \
+			`dpkg-buildflags --get CPPFLAGS` >> MCONFIG; \
+		echo LIBS+=-lpam `dpkg-buildflags --get LDFLAGS` >> MCONFIG; \
+	fi
+	$(MAKE)
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp
+	touch MCONFIG
+	[ ! -f Makefile ] || $(MAKE) distclean
+
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+
+	cp ftpd/ftpd debian/ftpd/usr/sbin/in.ftpd
+	cp ftpd/ftpd.8 debian/ftpd/usr/share/man/man8/in.ftpd.8
+	cp ftpd/*.5 debian/*.5 debian/ftpd/usr/share/man/man5
+	cp debian/ftpchroot debian/ftpusers debian/ftpd/etc
+	cp debian/pam.d/ftp debian/ftpd/etc/pam.d
+
+# Build architecture-independent files here.
+binary-indep: build install
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-arch: build install
+#	dh_testversion
+	dh_testdir
+	dh_testroot
+#	dh_installdebconf
+	dh_installdocs
+	dh_installexamples
+	dh_installmenu
+#	dh_installemacsen
+#	dh_installinit
+	dh_installcron
+#	dh_installmanpages
+#	dh_undocumented
+	dh_installchangelogs ChangeLog
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+#	dh_makeshlibs
+	dh_md5sums
+	dh_builddeb
+
+source diff:                                                                  
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install

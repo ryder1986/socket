@@ -1,0 +1,627 @@
+Description: Activate support for IPv6 transport.
+ This patch supplies working services for:
+ .
+ 1. Mixed IPv4 and IPv6 in inetd mode.
+ .
+ 2. Mixed IPv4 and IPv6 in standalone daemon mode.
+ .
+ 3. Selectable options '-4' and '-6' to activate a
+    single address family.
+ .
+ 4. Registration in wtmp of the caller's address structure.
+    This field in 'struct utmp' was earlier ignored, as it
+    it an extension particular to Linux.
+ .
+ 5. Implementation of ABOR for use in idle state.
+ .
+ 6. Conversion of second time length in case a compatibility
+    layer between 32 bits and 64 bits are in effect.
+ .
+ Testing was performed using xinetd and net.ipv6.bindv6only=1,
+ on architectures i386 and amd64.
+Author: Mats Erik Andersson <debian@gisladisker.se>
+X-Depends: linux-ftpd-0.17/debian/patches/16-family_independence.diff
+X-Comment: This code is fully independent of any USAGI code,
+ which is in use by the OpenBSD strand of this software.
+Forwarded: not-needed
+Last-Update: 2011-04-06
+--- linux-ftpd-0.17.debian/ftpd/extern.h	2010-04-25 21:52:13.000000000 +0200
++++ linux-ftpd-0.17/ftpd/extern.h	2011-04-06 20:39:37.000000000 +0200
+@@ -35,6 +35,8 @@
+  *      $Id: extern.h,v 1.5 1999/07/16 01:12:54 dholland Exp $
+  */
+ 
++struct sockaddr_storage;
++
+ void	blkfree __P((char **));
+ char  **copyblk __P((char **));
+ void	cwd __P((const char *));
+@@ -44,12 +46,12 @@ void	fatal __P((const char *));
+ int	ftpd_pclose __P((FILE *));
+ FILE   *ftpd_popen __P((char *, const char *));
+ int     ftpd_getline __P((char *, int, FILE *));
+-void	ftpdlogwtmp __P((const char *, const char *, const char *));
++void	ftpdlogwtmp __P((const char *, const char *, const char *, const struct sockaddr_storage *));
+ void	lreply __P((int, const char *, ...));
+ void	makedir __P((char *));
+ void	nack __P((const char *));
+ void	pass __P((char *));
+-void	passive __P((void));
++void	passive __P((int));
+ void	perror_reply __P((int, const char *));
+ void	pwd __P((void));
+ void	removedir __P((char *));
+@@ -61,6 +63,7 @@ void	send_file_list __P((const char *));
+ void	statcmd __P((void));
+ void	statfilecmd __P((char *));
+ void	store __P((const char *, const char *, int));
++int	test_eprt_string __P((char *));
+ void	upper __P((char *));
+ void	user __P((char *));
+ void	yyerror __P((char *));
+--- linux-ftpd-0.17.debian/ftpd/ftpcmd.y	2010-04-30 14:45:33.000000000 +0200
++++ linux-ftpd-0.17/ftpd/ftpcmd.y	2011-04-06 20:40:27.000000000 +0200
+@@ -75,7 +75,7 @@ char ftpcmd_rcsid[] =
+ 
+ #include "extern.h"
+ 
+-extern	struct sockaddr_in data_dest;
++extern	struct sockaddr_storage data_dest;
+ extern	int logged_in;
+ extern	struct passwd *pw;
+ extern	int guest;
+@@ -92,7 +92,9 @@ extern	int usedefault;
+ extern  int transflag;
+ extern  char tmpline[];
+ extern	int portcheck;
+-extern	struct sockaddr_in his_addr;
++extern	int use_ipv6;
++extern	int use_ipv4;
++extern	struct sockaddr_storage his_addr;
+ 
+ off_t	restart_point;
+ 
+@@ -167,6 +169,7 @@ cmp_addresses(struct sockaddr * left, st
+ 	ABOR	DELE	CWD	LIST	NLST	SITE
+ 	STAT	HELP	NOOP	MKD	RMD	PWD
+ 	CDUP	STOU	SMNT	SYST	SIZE	MDTM
++	EPRT	EPSV
+ 
+ 	UMASK	IDLE	CHMOD
+ 
+@@ -177,7 +180,7 @@ cmp_addresses(struct sockaddr * left, st
+ 
+ %type	<i> check_login octal_number byte_size
+ %type	<i> struct_code mode_code type_code form_code
+-%type	<s> pathstring pathname password username
++%type	<s> pathstring pathname password username transport
+ %type	<i> host_port
+ 
+ %start	cmd_list
+@@ -219,6 +222,7 @@ cmd
+ 					reply(500,
+ 					    "Illegal PORT rejected (reserved port).");
+ 				} else if (portcheck &&
++				    data_dest.ss_family == his_addr.ss_family &&
+ 				    cmp_addresses((struct sockaddr *) &data_dest,
+ 				    		    (struct sockaddr *) &his_addr)) {
+ 					usedefault = 1;
+@@ -235,10 +239,49 @@ cmd
+ 				}
+ 			}
+ 		}
++	| EPRT check_login SP transport CRLF
++		{
++			if ($2) {
++				int rc = test_eprt_string($4);
++
++				switch (rc) {
++					case 1:	/* Syntax error. */
++						reply(500, "Syntax error, command unrecognized.");
++						break;
++					case 2: /* Protocol family error. */
++						reply(522, "Network protocol not supported, use (%c).",
++							his_addr.ss_family == AF_INET6 ? '2' : '1');
++						break;
++					case 3: /* Invalid address and port combination. */
++						reply(501, "Illegal EPRT rejected (address wrong).");
++						break;
++					case 0:	/* Successful parsing. */
++						reply(200, "EPRT command successful.");
++				}
++			}
++		}
+ 	| PASV check_login CRLF
+ 		{
+ 			if ($2) {
+-				passive();
++				passive(0);
++			}
++		}
++	| EPSV check_login CRLF
++		{
++			if ($2) {
++				passive(1);
++			}
++		}
++	| EPSV check_login SP NUMBER CRLF
++		{
++			if ($2) {
++				if ( ($4 == 1 && his_addr.ss_family == AF_INET)
++						|| ($4 == 2 && his_addr.ss_family == AF_INET6) )
++					passive(1);
++				else
++					reply(501,
++						"Not a compatible address family, use (%c)",
++						his_addr.ss_family == AF_INET6 ? '2' : '1');
+ 			}
+ 		}
+ 	| TYPE check_login SP type_code CRLF
+@@ -395,8 +438,16 @@ cmd
+ 		}
+ 	| ABOR check_login CRLF
+ 		{
+-			if ($2) 
+-				reply(225, "ABOR command successful.");
++			if ($2) {
++				if (pdata >= 0) {
++					close(pdata);
++					pdata = -1;
++					usedefault = 1;
++					reply(226, "Closing data connection.");
++				} else {
++					reply(226, "ABOR command caused no action.");
++				}
++			}
+ 		}
+ 	| CWD check_login CRLF
+ 		{
+@@ -675,10 +726,16 @@ host_port
+ 				snprintf(port, sizeof(port), "%ju", 256 * $9 + $11);
+ 
+ 				memset(&hints, 0, sizeof(hints));
+-				hints.ai_family = AF_INET;		/* Enable mapped addressing? */
++				hints.ai_family = AF_INET;
+ 				hints.ai_socktype = SOCK_STREAM;
+ 				hints.ai_flags = AI_ADDRCONFIG | AI_NUMERICHOST | AI_NUMERICSERV;
+ 
++				if (his_addr.ss_family == AF_INET6) {
++					hints.ai_family = AF_INET6;
++					if (use_ipv4)
++						hints.ai_flags |= AI_V4MAPPED;
++				}
++
+ 				if (getaddrinfo(ipaddr, port, &hints, &aiptr)) {
+ 					$$ = 1;
+ 				} else {
+@@ -692,6 +749,10 @@ host_port
+ 		}
+ 	;
+ 
++transport
++	: STRING
++	;
++
+ form_code
+ 	: N
+ 		{
+@@ -890,6 +951,9 @@ struct tab cmdtab[] = {		/* In order def
+ 	{ "QUIT", QUIT, ARGS, 1,	"(terminate service)", },
+ 	{ "PORT", PORT, ARGS, 1,	"<sp> b0, b1, b2, b3, b4" },
+ 	{ "PASV", PASV, ARGS, 1,	"(set server in passive mode)" },
++	/* Extensions introduced in RFC 2428: EPRT, EPSV. */
++	{ "EPRT", EPRT, STR1, 1,	"<sp> <d> addr_fam <d> addr <d> port <d>" },
++	{ "EPSV", EPSV, ARGS, 1,	"[ <sp> addr-fam ]"},
+ 	{ "TYPE", TYPE, ARGS, 1,	"<sp> [ A | E | I | L ]" },
+ 	{ "STRU", STRU, ARGS, 1,	"(specify file structure)" },
+ 	{ "MODE", MODE, ARGS, 1,	"(specify transfer mode)" },
+--- linux-ftpd-0.17.debian/ftpd/ftpd.8	2010-04-25 21:52:13.000000000 +0200
++++ linux-ftpd-0.17/ftpd/ftpd.8	2010-05-08 01:23:15.000000000 +0200
+@@ -64,6 +64,10 @@ service specification; see
+ .Pp
+ Available options:
+ .Bl -tag -width Ds
++.It Fl 4
++Use IPv4 addressing only. Th default is to offer service for both families, IPv6 and IPv4.
++.It Fl 6
++Only provide IPv6 addressing capability.
+ .It Fl A
+ Permit only anonymous ftp connections or accounts listed in
+ .Pa /etc/ftpchroot.
+@@ -180,6 +184,8 @@ The case of the requests is ignored.
+ .It CDUP Ta "change to parent of current working directory"
+ .It CWD Ta "change working directory"
+ .It DELE Ta "delete a file"
++.It EPRT Ta "specify data connection port, either IPv4 or IPv6"
++.It EPSV Ta "ask for a server port for fetching data"
+ .It HELP Ta "give help information"
+ .It LIST Ta "give list files in a directory" Pq Dq Li "ls -lgA"
+ .It MKD Ta "make a directory"
+--- linux-ftpd-0.17.debian/ftpd/ftpd.c	2010-04-30 14:46:19.000000000 +0200
++++ linux-ftpd-0.17/ftpd/ftpd.c	2011-04-06 20:43:42.000000000 +0200
+@@ -148,12 +148,12 @@ static char version[sizeof(versionpre)+s
+ extern	off_t restart_point;
+ extern	char cbuf[];
+ 
+-struct	sockaddr_in server_addr;
+-struct	sockaddr_in ctrl_addr;
+-struct	sockaddr_in data_source;
+-struct	sockaddr_in data_dest;
+-struct	sockaddr_in his_addr;
+-struct	sockaddr_in pasv_addr;
++struct	sockaddr_storage server_addr;
++struct	sockaddr_storage ctrl_addr;
++struct	sockaddr_storage data_source;
++struct	sockaddr_storage data_dest;
++struct	sockaddr_storage his_addr;
++struct	sockaddr_storage pasv_addr;
+ 
+ int	daemon_mode = 0;
+ int	data;
+@@ -169,6 +169,8 @@ int	timeout = 900;    /* timeout after 1
+ int	maxtimeout = 7200; /* don't allow idle time to be set beyond 2 hours */
+ int	numeric_hosts = 0; /* log numeric IP rather than doing lookup */
+ int	logging;
++int	use_ipv6 = 1;		/* Let listening socket use IPv6. */
++int	use_ipv4 = 1;		/* Let listening socket use IPv4. */
+ int	high_data_ports = 0;
+ int	anon_only = 0;
+ int	multihome = 0;
+@@ -371,7 +373,7 @@ main(int argc, char *argv[], char **envp
+ 	socklen_t addrlen;
+ 	char *cp, line[LINE_MAX];
+ 	FILE *fd;
+-	const char *argstr = "AdDhlMnSt:T:u:UvP";
++	const char *argstr = "AdDhlMnSt:T:u:UvP46";
+ 	struct addrinfo hints, *aiptr;
+ 
+ #ifdef __linux__
+@@ -471,6 +473,16 @@ main(int argc, char *argv[], char **envp
+ 			debug = 1;
+ 			break;
+ 
++		case '6':
++			use_ipv6 = 1;
++			use_ipv4 = 0;
++			break;
++
++		case '4':
++			use_ipv6 = 0;
++			use_ipv4 = 1;
++			break;
++
+ 		default:
+ 			warnx("unknown flag -%c ignored", optopt);
+ 			break;
+@@ -517,7 +529,7 @@ main(int argc, char *argv[], char **envp
+ 		memset(&hints, 0, sizeof(hints));
+ 		hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
+ 		hints.ai_socktype = SOCK_STREAM;
+-		hints.ai_family = AF_INET;
++		hints.ai_family = use_ipv6 ? AF_INET6 : AF_INET;
+ 
+ 		if ((rc = getaddrinfo(NULL, "ftp", &hints, &aiptr))) {
+ 			syslog(LOG_FTP | LOG_ERR,
+@@ -535,6 +547,16 @@ main(int argc, char *argv[], char **envp
+ 			    (char *)&on, sizeof(on)) < 0)
+ 				syslog(LOG_FTP | LOG_ERR, "control setsockopt: %m");;
+ 
++			/* Should the listening control socket be dual stacked?
++			 * Only one case needs this: use_ipv6 = use_ipv4 = 1.    */
++			if (ai->ai_family == AF_INET6 && use_ipv4) {
++				socklen_t off = 0;
++
++				if (setsockopt(ctl_sock, IPPROTO_IPV6, IPV6_V6ONLY,
++							&off, sizeof(off)))
++					syslog(LOG_FTP | LOG_ERR, "control setsockopt: %m");
++			}
++
+ 			if (bind(ctl_sock, ai->ai_addr, ai->ai_addrlen)) {
+ 				close(ctl_sock);
+ 				continue;
+@@ -894,7 +916,7 @@ static void end_login(void)
+ 		pam_end(pamh, error);
+ 		pamh = 0;
+ #endif
+-		ftpdlogwtmp(ttyline, "", "");
++		ftpdlogwtmp(ttyline, "", "", NULL);
+ 		if (doutmp)
+ 			logout(utmp.ut_line);
+ #if defined(KERBEROS)
+@@ -1186,15 +1208,39 @@ void pass(char *passwd)
+ 	(void) initgroups(pw->pw_name, pw->pw_gid);
+ 
+ 	/* open wtmp before chroot */
+-	ftpdlogwtmp(ttyline, pw->pw_name, remotehost);
++	ftpdlogwtmp(ttyline, pw->pw_name, remotehost, &his_addr);
+ 
+ 	/* open utmp before chroot */
+ 	if (doutmp) {
+ 		memset((void *)&utmp, 0, sizeof(utmp));
++
++#if __WORDSIZE == 64 && __WORDSIZE_COMPAT32
++		/* Length of 'time_t' is 64 bits, but 'utmp.ut_time' has 32 bits.*/
++		time_t now;
++
++		(void)time(&now);
++		utmp.ut_time = now & 0xffffffff; /* Discard the upper 32 bits. */
++#else
++		/* Equal size time representations. */
+ 		(void)time(&utmp.ut_time);
++#endif /* Mixed 64 and 32 bits time */
++
+ 		(void)strncpy(utmp.ut_name, pw->pw_name, sizeof(utmp.ut_name));
+ 		(void)strncpy(utmp.ut_host, remotehost, sizeof(utmp.ut_host));
+ 		(void)strncpy(utmp.ut_line, ttyline, sizeof(utmp.ut_line));
++		switch (his_addr.ss_family) {
++			case AF_INET6:
++				memcpy(&utmp.ut_addr,
++					&((struct sockaddr_in6 *) &his_addr)->sin6_addr,
++					sizeof(struct in6_addr));
++				break;
++			case AF_INET:
++				memcpy(&utmp.ut_addr,
++					&((struct sockaddr_in *) &his_addr)->sin_addr,
++					sizeof(struct in_addr));
++			default:
++				break;
++		}
+ 		login(&utmp);
+ 	}
+ 
+@@ -1465,6 +1511,7 @@ done:
+ static FILE * getdatasock(const char *mode)
+ {
+ 	int on = 1, s, t, tries;
++	socklen_t off = 0;
+ 	sigset_t allsigs;
+ 
+ 	if (data >= 0)
+@@ -1472,12 +1519,17 @@ static FILE * getdatasock(const char *mo
+ 	sigfillset(&allsigs);
+ 	sigprocmask (SIG_BLOCK, &allsigs, NULL);
+ 	(void) seteuid((uid_t)0);
+-	s = socket(his_addr.sin_family, SOCK_STREAM, 0);
++	s = socket(his_addr.ss_family, SOCK_STREAM, 0);
+ 	if (s < 0)
+ 		goto bad;
+ 	if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
+ 	    (char *) &on, sizeof(on)) < 0)
+ 		goto bad;
++	if (his_addr.ss_family == AF_INET6 && use_ipv4)
++		if (setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY,
++					&off, sizeof(off)))
++			syslog(LOG_FTP | LOG_ERR, "getdatasock(), setsockopt: %m");
++
+ 	/* anchor socket to avoid multi-homing problems */
+ 	memcpy(&data_source, &ctrl_addr, sizeof(data_source));
+ 	set_port((struct sockaddr *) &data_source, data_port);
+@@ -1568,7 +1620,6 @@ static FILE * dataconn(const char *name,
+ 			return (NULL);
+ 		}
+ #ifdef BREAKRFC
+-		//if (from.sin_addr.s_addr != his_addr.sin_addr.s_addr) {
+ 		if (cmp_addresses((struct sockaddr *) &from,
+ 					(struct sockaddr *) &his_addr)) {
+ 			perror_reply(435, "Can't build data connection"); 
+@@ -1636,7 +1687,6 @@ static FILE * dataconn(const char *name,
+ 		return NULL;
+ 	}
+ #ifdef BREAKRFC
+-	//if (data_dest.sin_addr.s_addr != his_addr.sin_addr.s_addr) {
+ 	if (cmp_addresses((struct sockaddr *) &data_dest,
+ 				(struct sockaddr *) &his_addr)) {
+ 		perror_reply(435, "Can't build data connection");
+@@ -2245,15 +2295,19 @@ static void myoob(int signo)
+ 	errno = save_errno;
+ }
+ 
++#define IS_MAPPED_IPV4(a) \
++	(IN6_IS_ADDR_V4MAPPED(&((struct sockaddr_in6 *) (a))->sin6_addr) || \
++		IN6_IS_ADDR_V4COMPAT(&((struct sockaddr_in6 *) (a))->sin6_addr))
++
+ /*
+  * Note: a response of 425 is not mentioned as a possible response to
+  *	the PASV command in RFC959. However, it has been blessed as
+  *	a legitimate response by Jon Postel in a telephone conversation
+  *	with Rick Adams on 25 Jan 89.
+  */
+-void passive(void)
++void passive(int extend)
+ {
+-	socklen_t len;
++	socklen_t len, off = 0;
+ #ifdef IP_PORTRANGE
+ 	int on;
+ #else
+@@ -2266,11 +2320,15 @@ void passive(void)
+ 	}
+ 	if (pdata >= 0)
+ 		close(pdata);
+-	pdata = socket(his_addr.sin_family, SOCK_STREAM, 0);
++	pdata = socket(his_addr.ss_family, SOCK_STREAM, 0);
+ 	if (pdata < 0) {
+ 		perror_reply(425, "Can't open passive connection");
+ 		return;
+ 	}
++	if (his_addr.ss_family == AF_INET6 && use_ipv4)
++		if (setsockopt(pdata, IPPROTO_IPV6, IPV6_V6ONLY,
++					&off, sizeof(off)))
++			syslog(LOG_FTP | LOG_ERR, "passive(), setsockopt: %m");
+ 
+ 	memcpy(&pasv_addr, &ctrl_addr, sizeof(pasv_addr));
+ 
+@@ -2312,10 +2370,7 @@ void passive(void)
+ 
+ #define UC(b) (((int) b) & 0xff)
+ 
+-	if (((struct sockaddr *) &pasv_addr)->sa_family == AF_INET6)
+-		reply(229, "Extended Passive Mode OK (|||%d|)",
+-			get_port((struct sockaddr *) &pasv_addr));
+-	else {
++	if (!extend && (pasv_addr.ss_family == AF_INET || IS_MAPPED_IPV4(&pasv_addr))) {
+ 		uint32_t ip4ad = get_ipv4address((struct sockaddr *) &pasv_addr);
+ 		in_port_t port = get_port((struct sockaddr *) &pasv_addr);
+ 
+@@ -2323,6 +2378,9 @@ void passive(void)
+ 				UC(ip4ad >> 24), UC(ip4ad >> 16),
+ 				UC(ip4ad >> 8), UC(ip4ad),
+ 				UC(port >> 8), UC(port));
++	} else {
++		reply(229, "Extended Passive Mode OK (|||%d|)",
++			get_port((struct sockaddr *) &pasv_addr));
+ 	}
+ 
+ #undef UC
+@@ -2337,6 +2395,93 @@ pasv_error:
+ }
+ 
+ /*
++ * test_eprt_string(char *)
++ *
++ * Parse the transport string used in EPRT command.
++ *
++ * Return values:
++ *
++ *  0: Success. Valid address in data_dest.
++ *  1: Syntax error.
++ *  2: Incorrect protocol family.
++ *  3: Invalid address, or port, specification.
++ */
++int test_eprt_string(char * trans)
++{
++	char delim, ipaddr[INET6_ADDRSTRLEN], portstr[12];
++	int pf, port;
++	unsigned int j = 0;
++	struct addrinfo hints, *aiptr;
++
++	/* Easy sanity checks first. */
++	if ( ! trans || strlen(trans) < 10 )
++		return 1;	/* Syntax error. */
++
++	/* Parse the contents. */
++	delim = *(trans++);
++	if ( *trans != '1' && *trans != '2')
++		return 2;	/* Protocol family error. */
++ 
++	if ( *(trans+1) != delim )
++		return 1;	/* Syntax error. */
++
++	pf = *trans - '0';	/* The character is '1' or '2'. */
++
++	/* Check that address families match the claimed protocol. */
++	if ((pf != 1 && his_addr.ss_family == AF_INET)
++			|| (pf != 2 && his_addr.ss_family == AF_INET6))
++		return 2;	/* Protocol family error. */
++
++	trans += 2;	/* Jump to IP address portion, and extract it. */
++	while (*trans && (j < sizeof(ipaddr) - 1) &&
++				strchr("0123456789abcdefABCDEF.:", *trans))
++		ipaddr[j++] = *(trans++);
++
++	ipaddr[j] = '\0';
++
++	if (*trans != delim)
++		return 1;	/* Syntax error. */
++
++	++trans;
++
++	/* A port number should be next. */
++	if (sscanf(trans, "%u", &port) != 1)
++		return 1;	/* Syntax error. */
++
++	while (isdigit(*trans))
++		++trans;
++
++	/* Last delimiter, at least one digit present by previous test. */
++	if (*trans != delim)
++		return 1;	/* Syntax error. */
++
++	/* All components are parsed. Now try establishing the address. */
++	sprintf(portstr, "%d", port);
++	memset(&hints, 0, sizeof(hints));
++	hints.ai_family = his_addr.ss_family;
++	hints.ai_socktype = SOCK_STREAM;
++	hints.ai_flags = AI_ADDRCONFIG | AI_NUMERICHOST | AI_NUMERICSERV;
++
++	if (getaddrinfo(ipaddr, portstr, &hints, &aiptr))
++		return 3;	/* Invalid address and port combination. */
++
++	/* Record the established address. */
++	memcpy(&data_dest, aiptr->ai_addr, aiptr->ai_addrlen);
++	freeaddrinfo(aiptr);
++
++	/* Close any previous passive socket. */
++	if (pdata >= 0) {
++		close(pdata);
++		pdata = -1;
++	}
++
++	/* Turn standard listening mechanism off. A valid address exists! */
++	usedefault = 0;
++
++	return 0;	/* Success. */
++} /* test_eprt_string(char *) */
++
++/*
+  * Generate unique name for file with basename "local".
+  * The file named "local" is already known to exist.
+  * Generates failure reply on error.
+--- linux-ftpd-0.17.debian/ftpd/logwtmp.c	2010-04-25 21:52:13.000000000 +0200
++++ linux-ftpd-0.17/ftpd/logwtmp.c	2010-05-09 02:06:48.000000000 +0200
+@@ -49,6 +49,7 @@ char logwtmp_rcsid[] =
+ #include <stdio.h>
+ #include <string.h>
+ #include <time.h>
++#include <netinet/in.h>
+ #include "extern.h"
+ 
+ static int fd = -1;
+@@ -59,7 +60,8 @@ static int fd = -1;
+  * after login, but before logout).
+  */
+ void
+-ftpdlogwtmp(const char *line, const char *name, const char *host)
++ftpdlogwtmp(const char *line, const char *name,
++	const char *host, const struct sockaddr_storage *ss)
+ {
+ 	struct utmp ut;
+ 	struct stat buf;
+@@ -72,10 +74,36 @@ ftpdlogwtmp(const char *line, const char
+ 		ut.ut_type = *name ? USER_PROCESS : DEAD_PROCESS;
+ 		ut.ut_pid = getpid();
+ #endif
++
++#if __WORDSIZE == 64 && __WORDSIZE_COMPAT32
++		/* Length of 'time_t' is 64 bits, but 'ut.ut_time' has 32 bits.*/
++		time_t now;
++
++		(void)time(&now);
++		ut.ut_time = now & 0xffffffff; /* Discard the upper 32 bits. */
++#else
++		/* Equal size time representations. */
++		(void)time(&ut.ut_time);
++#endif /* Mixed 64 and 32 bits time */
++
+ 		(void)strncpy(ut.ut_line, line, sizeof(ut.ut_line));
+ 		(void)strncpy(ut.ut_name, name, sizeof(ut.ut_name));
+ 		(void)strncpy(ut.ut_host, host, sizeof(ut.ut_host));
+-		(void)time(&ut.ut_time);
++		if (ss) {
++		    switch (ss->ss_family) {
++			case AF_INET6:
++			    memcpy(&ut.ut_addr,
++				    &((const struct sockaddr_in6 *) ss)->sin6_addr,
++				    sizeof(struct in6_addr));
++			    break;
++			case AF_INET:
++			    memcpy(&ut.ut_addr,
++				    &((const struct sockaddr_in *) ss)->sin_addr,
++				    sizeof(struct in_addr));
++			default:
++			    break;
++		    }
++		}
+ 		if (write(fd, (char *)&ut, sizeof(struct utmp)) !=
+ 		    sizeof(struct utmp))
+ 			(void)ftruncate(fd, buf.st_size);

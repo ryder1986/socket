@@ -1,0 +1,23 @@
+Description: Spelling error in manual page.
+Author: Alberto Gonzalez Iniesta <agi@inittab.org>
+Forwarded: not-needed
+Last-Update: 2010-07-08
+
+--- linux-ftpd-0.17.orig/ftpd/ftpd.8	2010-07-08 13:34:37.251457013 +0200
++++ linux-ftpd-0.17/ftpd/ftpd.8	2010-07-08 13:35:05.667542648 +0200
+@@ -65,13 +65,13 @@
+ Available options:
+ .Bl -tag -width Ds
+ .It Fl 4
+-Use IPv4 addressing only. Th default is to offer service for both families, IPv6 and IPv4.
++Use IPv4 addressing only. The default is to offer service for both families, IPv6 and IPv4.
+ .It Fl 6
+ Only provide IPv6 addressing capability.
+ .It Fl A
+ Permit only anonymous ftp connections or accounts listed in
+ .Pa /etc/ftpchroot.
+-Other connection attempts are refused.  This option is nolonger effective if
++Other connection attempts are refused.  This option is no longer effective if
+ PAM is enabled.  Please refer to the README file for instructions to doing
+ this with PAM.
+ .It Fl d

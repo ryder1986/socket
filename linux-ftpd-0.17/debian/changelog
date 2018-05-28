@@ -1,0 +1,386 @@
+linux-ftpd (0.17-35) unstable; urgency=low
+
+  * Interchange maintainer and uploader.
+  * Update Standards to 3.9.6.
+    + debian/rules: Add missing targets build-arch, build-indep.
+    + debian/control: Set Build-Depends to '>= 9' for debhelper.
+    + debian/compat: Update.
+  * debian/rules: Use the same build flags CDEFS and LDDEFS as is in
+    use by the variant linux-ftpd-ssl.
+  * debian/postinst: Mistyped informational text. (Closes: #741111)
+
+ -- Mats Erik Andersson <mats.andersson@gisladisker.se>  Mon, 27 Apr 2015 14:31:44 +0200
+
+linux-ftpd (0.17-34) unstable; urgency=low
+
+  * Drop unneeded libcrypt linking:
+    + debian/patches/040-refine_config.diff: New file.
+  * Support GNU/Hurd:
+    + debian/patches/044-support_gnu_hurd.diff: New file.
+    + debian/control: Mention GNU/Hurd in package description.
+  * Activate hardening flags. Suggested by Moritz Muehlenhoff.
+    + debian/rules: Use 'dpkg-buildflags'. (Closes: #656005)
+  * Bump Standards to 3.9.3.
+
+ -- Mats Erik Andersson <mats.andersson@gisladisker.se>  Fri, 30 Mar 2012 00:54:44 +0200
+
+linux-ftpd (0.17-33) unstable; urgency=low
+
+  * Correct implementation of EPSV for IPv4.
+    + debian/patches/020-support_ipv6.diff: Updated file.
+  * [lintian] Addition of DEP-3 header:
+    + debian/patches/030-manpage_typos.diff: Description added.
+  * debian/control: Spelling of 'kFreeBSD'.
+  * Bumped Standards to 3.9.1.
+
+ -- Mats Erik Andersson <mats.andersson@gisladisker.se>  Wed, 06 Apr 2011 22:34:30 +0200
+
+linux-ftpd (0.17-32) unstable; urgency=low
+
+  * Fixed minor typos in ftpd.8.
+  * Renamed patches to avoid future clashes with linux-ftpd-ssl.
+  * Bumped Standards to 3.9.0
+
+ -- Alberto Gonzalez Iniesta <agi@inittab.org>  Thu, 08 Jul 2010 13:28:07 +0200
+
+linux-ftpd (0.17-31) unstable; urgency=low
+
+  [Mats Erik Andersson]
+
+  * debian/control: Expanded description.
+  * debian/copyright: Added explicit license for the two IPv6-patches.
+  * Describe effects of recent changes on three inetd-servers.
+    + debian/NEWS: Short text addition.
+    + debian/README.Debian: Added an extended discussion.
+  * FTBFS GNU/kfreebsd, GNU/Hurd:
+    * debian/patches/26-support_glibc_bsd_and_gnu.diff: New file.
+  * debian/{postinst,prerm}: Use option '--multi' with 'update-inetd'.
+
+ -- Mats Erik Andersson <mats.andersson@gisladisker.se>  Tue, 25 May 2010 20:05:34 +0200
+
+linux-ftpd (0.17-30) unstable; urgency=low
+
+  * Migration to format "3.0 (quilt)".
+    + Identified source code patches:
+    + debian/patches/01-from_hamm.diff
+    + debian/patches/02-from_sarge.diff
+    + debian/patches/03-from_etch.diff
+    + debian/patches/10-ftpd_csrf.diff
+  * Standard 3.8.4, debhelper compatibility 7:
+    + Using dh_prep.
+  * debian/control:
+    + Build depend includes ${misc:Depends} and 'debhelper (>= 7).
+    + Source homepage stanza pointing to download site.
+  * debian/watch: New file.
+  * debian/postinst: Suppress error message if '/etc/inetd.conf' is missing.
+    + Print a hint to the example xinetd configuration, if applicable.
+  * debian/ftpd.examples:
+    + debian/ftpd.xinetd: Configuration for use with xinetd.
+  * Prepare migration to IPv6 support:
+    + debian/rules: Use compiler flag '-fno-strict-aliasing'.
+    + debian/patches/14-adjust_infrastruct.diff: New file.
+    + debian/patches/16-family_independence.diff: New file.
+  * Implement active IPv6 support: (Closes: #580251)
+    + debian/patches/20-support_ipv6.diff: New file.
+    + debian/NEWS: New file.
+    + debian/README.Debian: A short explanation is added.
+  * Uninitialized va_list causes segmentation faults on amd64:
+    + debian/patches/24-failing_va_list.diff: New file.
+  * [lintian] maintainer-script-without-set-e:
+    + debian/{preinst,prerm,postinst,postrm} modified.
+  * [lintian] debian-rules-ignores-make-clean-error:
+    + debian/rules modified.
+  * agi: Added Mats Erik Andersson as Uploader.
+
+ -- Mats Erik Andersson <mats.andersson@gisladisker.se>  Sun, 09 May 2010 16:17:20 +0200
+
+linux-ftpd (0.17-29) unstable; urgency=high
+
+  * Ian Beckwith:
+    - Patch to fix cross-site request forgery (CSRF) attacks.
+      CVE-2008-4247 (Closes: #500278)
+  * Updated package description. (Closes: #493433)
+
+ -- Alberto Gonzalez Iniesta <agi@inittab.org>  Fri, 17 Oct 2008 20:34:17 +0200
+
+linux-ftpd (0.17-28) unstable; urgency=low
+
+  * Patch postrm/postinst files to handle update-inetd better.
+    Thanks Ian Beckwith for the patch. (Closes: #482912)
+
+ -- Alberto Gonzalez Iniesta <agi@inittab.org>  Tue, 22 Jul 2008 17:13:19 +0200
+
+linux-ftpd (0.17-27) unstable; urgency=low
+
+  * Ignore missing ../MCONFIG in clean target. (Closes: #436720)
+
+ -- Alberto Gonzalez Iniesta <agi@inittab.org>  Wed, 08 Aug 2007 20:49:22 +0200
+
+linux-ftpd (0.17-26) unstable; urgency=low
+
+  * Removed Depends on update-inetd, since it should be provided by
+    inetd-superserver.
+
+ -- Alberto Gonzalez Iniesta <agi@inittab.org>  Tue, 07 Aug 2007 18:02:11 +0200
+
+linux-ftpd (0.17-25) unstable; urgency=low
+
+  * Condition the call to update-inetd in postrm. (Closes: #416745)
+  * Moved netbase dependency to openbsd-inetd | inet-superserver.
+  * Added Depends on update-inetd
+  * Moved to debhelper compat 4. (Removed debian/conffiles)
+  * Bumped Standards-Version to 3.7.2.2. No change
+
+ -- Alberto Gonzalez Iniesta <agi@inittab.org>  Sat, 31 Mar 2007 19:43:37 +0200
+
+linux-ftpd (0.17-24) unstable; urgency=low
+
+  * pam.d/ftpd. Updated PAM configuration to used common-* files.
+    Thanks a lot Pierre Gaufillet for the patch (Closes: #308651)
+
+ -- Alberto Gonzalez Iniesta <agi@inittab.org>  Thu, 14 Dec 2006 12:14:53 +0100
+
+linux-ftpd (0.17-23) unstable; urgency=high
+
+  * Urgency set due to security fix.
+  * Corrected typo in patch used in previous upload that
+    made the server run some commands with EGID 'root'.
+    Thanks to Matt Power (for finding out) and 
+    Stefan Cornelius from Gentoo (for warning me).
+
+ -- Alberto Gonzalez Iniesta <agi@inittab.org>  Sat, 25 Nov 2006 18:54:59 +0100
+
+linux-ftpd (0.17-22) unstable; urgency=high
+
+  * Fixing two security bugs:
+    - Fixed ftpd from doing chdir while running as root.
+      (Closes: #384454) Thanks a lot to Paul Szabo for finding out
+      and the patch.
+    - Check the return value from setuid calls to avoid running
+      code as root. Thanks Paul Szabo for the patch.
+
+ -- Alberto Gonzalez Iniesta <agi@inittab.org>  Fri, 15 Sep 2006 13:14:25 +0200
+
+linux-ftpd (0.17-21) unstable; urgency=low
+
+  * Patched ftpcmd.y to allow building on amd64 with gcc-4.0.
+    Thanks Andreas Jochens for the patch. (Closes: #300245)
+
+ -- Alberto Gonzalez Iniesta <agi@inittab.org>  Sun, 10 Jul 2005 08:48:19 +0200
+
+linux-ftpd (0.17-20) unstable; urgency=low
+
+  * New maintainer.
+
+ -- Alberto Gonzalez Iniesta <agi@inittab.org>  Sat, 12 Mar 2005 12:07:29 +0100
+
+linux-ftpd (0.17-19) unstable; urgency=low
+
+  * Add -n option to log numeric IPs rather than doing reverse lookup (for
+    improved log forensics in the event an attacker has control of their
+    reverse DNS.).  Thanks Dean Gaudet. (Closes: #258369)
+  * Fix Build-Depends to avoid relying on virtual package 'libpam-dev'
+    exclussively.
+  * Convert changelog to UTF-8.
+
+ -- Robert Millan <rmh@debian.org>  Wed, 11 Aug 2004 22:08:44 +0200
+
+linux-ftpd (0.17-18) unstable; urgency=low
+
+  * New maintainer. (Closes: #249709)
+    - control (Maintainer): Set myself.
+
+ -- Robert Millan <rmh@debian.org>  Wed, 19 May 2004 02:09:10 +0200
+
+linux-ftpd (0.17-17) unstable; urgency=low
+
+  * Documented the need for libnss_files.so.2 (closes: #241687).
+
+ -- Herbert Xu <herbert@debian.org>  Sat, 24 Apr 2004 17:48:37 +1000
+
+linux-ftpd (0.17-16) unstable; urgency=low
+
+  * Fixed ftpd entry existence test in postinst.
+  * Added missing -q for last grep in postinst.
+  * Removed debconf message about globbing attacks.
+  * Fixed type-punning warning in pam_doit.
+  * Removed stamp files for build and install.
+  * Fixed const cast warning in ftpcmd.y.
+
+ -- Herbert Xu <herbert@debian.org>  Sat, 21 Jun 2003 14:20:35 +1000
+
+linux-ftpd (0.17-15) unstable; urgency=low
+
+  * Removed description of bogus -p option (closes: #180652).
+
+ -- Herbert Xu <herbert@debian.org>  Thu,  6 Mar 2003 20:26:16 +1100
+
+linux-ftpd (0.17-14) unstable; urgency=low
+
+  * Added Spanish debconf translation (Carlos Valdivia Yagüe, closes: #143956).
+  * Call ls without -g (closes #156992).
+
+ -- Herbert Xu <herbert@debian.org>  Sun, 25 Aug 2002 10:09:07 +1000
+
+linux-ftpd (0.17-13) unstable; urgency=low
+
+  * Added Russian debconf translation (Ilgiz Kalmetev, closes: #135840).
+
+ -- Herbert Xu <herbert@debian.org>  Thu, 18 Apr 2002 19:18:28 +1000
+
+linux-ftpd (0.17-12) unstable; urgency=low
+
+  * Fixed REST/STOR combination with OpenBSD patch (closes: #132974).
+
+ -- Herbert Xu <herbert@debian.org>  Sat,  9 Feb 2002 14:50:45 +1100
+
+linux-ftpd (0.17-11) unstable; urgency=low
+
+  * REST now accepts intmax_t (closes: #126766).
+
+ -- Herbert Xu <herbert@debian.org>  Sun, 20 Jan 2002 19:03:22 +1100
+
+linux-ftpd (0.17-10) unstable; urgency=low
+
+  * Built with support for large files (closes: #122961).
+
+ -- Herbert Xu <herbert@debian.org>  Sun,  9 Dec 2001 17:45:53 +1100
+
+linux-ftpd (0.17-9) unstable; urgency=low
+
+  * Added sample limits.conf entry against globbing (closes: #121074).
+  * Added Brazilian debconf template (Andre Luis Lopes, closes: #120835).
+  * Always specify the syslog facility explicitly (closes: #121644).
+
+ -- Herbert Xu <herbert@debian.org>  Sat,  1 Dec 2001 18:28:51 +1100
+
+linux-ftpd (0.17-8) unstable; urgency=low
+
+  * Added German debconf template (Sebastian Feltel, closes: #113611).
+
+ -- Herbert Xu <herbert@debian.org>  Sat, 13 Oct 2001 08:13:55 +1000
+
+linux-ftpd (0.17-7) unstable; urgency=low
+
+  * Added debconf about globbing attacks.
+
+ -- Herbert Xu <herbert@debian.org>  Thu, 23 Aug 2001 19:49:01 +1000
+
+linux-ftpd (0.17-6) unstable; urgency=low
+
+  * Register sessions with PAM.
+  * Use pam_limits by default.
+  * Documented the procedure to counter globbing attacks.
+
+ -- Herbert Xu <herbert@debian.org>  Sat,  9 Jun 2001 13:25:27 +1000
+
+linux-ftpd (0.17-5) unstable; urgency=low
+
+  * Removed duplicate authentication error message (closes: #96640).
+
+ -- Herbert Xu <herbert@debian.org>  Mon,  7 May 2001 22:08:29 +1000
+
+linux-ftpd (0.17-4) unstable; urgency=low
+
+  * The value of unique is now passed to dataconn (closes: #93217).
+
+ -- Herbert Xu <herbert@debian.org>  Sun, 22 Apr 2001 09:33:26 +1000
+
+linux-ftpd (0.17-3) unstable; urgency=low
+
+  * Fixed anonymous authentication bug when PAM is disabled (Liviu Daia,
+    Abraham vd Merwe, Rainer Weikusat, closes: #88837).
+  * Fixed patterns used to check for existing ftp services (closes: #85579).
+
+ -- Herbert Xu <herbert@debian.org>  Fri,  9 Mar 2001 22:30:37 +1100
+
+linux-ftpd (0.17-2) unstable; urgency=high
+
+  * Applied bug fix from OpenBSD (closes: #78973).
+
+ -- Herbert Xu <herbert@debian.org>  Thu,  7 Dec 2000 19:47:47 +1100
+
+linux-ftpd (0.17-1) unstable; urgency=low
+
+  * New upstream release (identical to 0.16-2).
+
+ -- Herbert Xu <herbert@debian.org>  Sat, 12 Aug 2000 13:29:38 +1000
+
+linux-ftpd (0.16-2) unstable; urgency=high
+
+  * Fixed a security hole discovered by OpenBSD, thanks to Thomas Roessler for
+    notifying me (closes: #66832).
+  * Added build-time dependency on debhelper.
+
+ -- Herbert Xu <herbert@debian.org>  Fri,  7 Jul 2000 10:15:38 +1000
+
+linux-ftpd (0.16-1) unstable; urgency=low
+
+  * New upstream release.
+  * Added Source-Depends on bison (closes: #61160).
+  * Removed checks on the remote address of the data connection which violated
+    RFC 959 (closes: #59251).
+
+ -- Herbert Xu <herbert@debian.org>  Mon, 24 Apr 2000 20:46:00 +1000
+
+linux-ftpd (0.11-9) frozen unstable; urgency=low
+
+  * Added Bource-Depends on libpam0g-dev (closes: #49917).
+
+ -- Herbert Xu <herbert@debian.org>  Sat, 18 Mar 2000 12:50:14 +1100
+
+linux-ftpd (0.11-8) unstable; urgency=low
+
+  * Added entry for ~ftp/lib in in.ftpd(8) (closes: #49035).
+
+ -- Herbert Xu <herbert@debian.org>  Sat,  6 Nov 1999 12:21:37 +1100
+
+linux-ftpd (0.11-7) unstable; urgency=low
+
+  * Added missing dependencies on netbase and libpam-modules (closes: #48411).
+
+ -- Herbert Xu <herbert@debian.org>  Wed, 27 Oct 1999 09:25:59 +1000
+
+linux-ftpd (0.11-6) unstable; urgency=low
+
+  * Anonymous users other than ftp should work now (closes: #48252).
+
+ -- Herbert Xu <herbert@debian.org>  Mon, 25 Oct 1999 16:38:16 +1000
+
+linux-ftpd (0.11-5) unstable; urgency=low
+
+  * Installed files according to the FHS.
+  * Applied PAM patch from Olaf Kirch.
+  * Renamed PAM file to ftp.
+
+ -- Herbert Xu <herbert@debian.org>  Thu,  7 Oct 1999 22:19:58 +1000
+
+linux-ftpd (0.11-4) unstable; urgency=low
+
+  * Rewritten PAM code to remove hack for ftp prompt.
+  * Provide/conflict with ftp-server (fixes #42412).
+
+ -- Herbert Xu <herbert@debian.org>  Fri, 10 Sep 1999 10:32:04 +1000
+
+linux-ftpd (0.11-3) unstable; urgency=low
+
+  * Fixed incorrect usage of update-inetd in postinst (fixes #40771).
+
+ -- Herbert Xu <herbert@debian.org>  Mon,  5 Jul 1999 17:46:41 +1000
+
+linux-ftpd (0.11-2) unstable; urgency=low
+
+  * Don't use absoluet paths in PAM configuration file (fixes #38985).
+
+ -- Herbert Xu <herbert@debian.org>  Sat, 19 Jun 1999 12:10:03 +1000
+
+linux-ftpd (0.11-1) unstable; urgency=low
+
+  * Split from netstd.
+  * Added support for PAM.
+  * Pad with zeros instead of spaces in setproctitle.
+  * Add a note about ftp-bugs in README (fixes #29733).
+  * Made response to STOU commands conform to RFC 1123 (fixes #32490).
+
+ -- Herbert Xu <herbert@debian.org>  Thu,  1 Apr 1999 13:45:20 +1000
+

@@ -1,0 +1,246 @@
+Description: Patches taken from linux-ftpd_0.17-20sarge2.diff.gz.
+ Difference constructed against linux-ftpd_0.17-13.diff.gz.
+Author: Herber Xu <herbert@debian.org>
+        Robert Millan <rmh@debian.org>
+	Alberto Gonzalez Iniesta <agi@inittab.org>
+X-Comment: Contributions by Dean Gaudet and Paul Szabo.
+Forwarded: no
+Last-Update: 2006-09-25
+diff -u linux-ftpd-0.17/ftpd/ftpcmd.y linux-ftpd-0.17/ftpd/ftpcmd.y
+--- linux-ftpd-0.17/ftpd/ftpcmd.y
++++ linux-ftpd-0.17/ftpd/ftpcmd.y
+@@ -114,6 +114,7 @@
+ %union {
+ 	intmax_t i;
+ 	char *s;
++	const char *cs;
+ }
+ 
+ %token
+@@ -313,12 +314,12 @@
+ 	| LIST check_login CRLF
+ 		{
+ 			if ($2)
+-				retrieve("/bin/ls -lgA", "");
++				retrieve("/bin/ls -lA", "");
+ 		}
+ 	| LIST check_login SP pathname CRLF
+ 		{
+ 			if ($2 && $4 != NULL)
+-				retrieve("/bin/ls -lgA %s", $4);
++				retrieve("/bin/ls -lA %s", $4);
+ 			if ($4 != NULL)
+ 				free($4);
+ 		}
+@@ -1053,7 +1054,7 @@
+ 					/* NOTREACHED */
+ 				}
+ 				state = p->state;
+-				yylval.s = (char *)p->name;  /* XXX */
++				yylval.cs = p->name;
+ 				return (p->token);
+ 			}
+ 			break;
+@@ -1079,7 +1080,7 @@
+ 					/* NOTREACHED */
+ 				}
+ 				state = p->state;
+-				yylval.s = (char *) p->name;  /* XXX */
++				yylval.cs = p->name;
+ 				return (p->token);
+ 			}
+ 			state = CMD;
+diff -u linux-ftpd-0.17/ftpd/ftpd.8 linux-ftpd-0.17/ftpd/ftpd.8
+--- linux-ftpd-0.17/ftpd/ftpd.8
++++ linux-ftpd-0.17/ftpd/ftpd.8
+@@ -46,7 +46,7 @@
+ Internet File Transfer Protocol server
+ .Sh SYNOPSIS
+ .Nm ftpd
+-.Op Fl AdDhlMPSU
++.Op Fl AdDhlMnPSU
+ .Op Fl T Ar maxtimeout
+ .Op Fl t Ar timeout
+ .Op Fl u Ar mask
+@@ -105,12 +105,8 @@
+ the IP number the client connected to, and located inside
+ .Pa ~ftp
+ is used instead.
+-.It Fl p
+-Disable passive mode ftp connections.  This is useful if you are behind
+-a firewall that refuses connections to arbitrary high numbered ports.
+-Many ftp clients try passive mode first and do not always react gracefully
+-to a server that refuses connections to the port it asked the client to
+-connect to.
++.It Fl n
++Use numeric IP addresses in logs instead of doing hostname lookup.
+ .It Fl P
+ Permit illegal port numbers or addresses for PORT command initiated connects.
+ By default
+@@ -369,7 +365,15 @@
+ (or whatever your
+ .Xr ls
+ command is linked to)
+-must be present.  Note that if you're using a 2.2.* or later Linux kernel,
++must be present.
++In order to read 
++.Xr passwd 5
++and
++.Xr group 5 ,
++the library
++.Xr libnss_files.so.2
++is also needed.
++Note that if you're using a 2.2.* or later Linux kernel,
+ .Xr ld-linux.so.2
+ must be executable as well as readable (555).  All other files should be mode
+ 444.
+diff -u linux-ftpd-0.17/ftpd/ftpd.c linux-ftpd-0.17/ftpd/ftpd.c
+--- linux-ftpd-0.17/ftpd/ftpd.c
++++ linux-ftpd-0.17/ftpd/ftpd.c
+@@ -165,7 +165,8 @@
+ #endif
+ int	debug = 0;
+ int	timeout = 900;    /* timeout after 15 minutes of inactivity */
+-int	maxtimeout = 7200;/* don't allow idle time to be set beyond 2 hours */
++int	maxtimeout = 7200; /* don't allow idle time to be set beyond 2 hours */
++int	numeric_hosts = 0; /* log numeric IP rather than doing lookup */
+ int	logging;
+ int	high_data_ports = 0;
+ int	anon_only = 0;
+@@ -312,7 +313,7 @@
+ 	socklen_t addrlen;
+ 	char *cp, line[LINE_MAX];
+ 	FILE *fd;
+-	const char *argstr = "AdDhlMSt:T:u:UvP";
++	const char *argstr = "AdDhlMnSt:T:u:UvP";
+ 	struct hostent *hp;
+ 
+ #ifdef __linux__
+@@ -372,6 +373,10 @@
+ 			multihome = 1;
+ 			break;
+ 
++		case 'n':
++			numeric_hosts = 1;
++			break;
++
+ 		case 'S':
+ 			stats = 1;
+ 			break;
+@@ -906,7 +911,6 @@
+ 
+ static int pam_doit(void)
+ {
+-	char *user;
+ 	int error;
+ 
+ 	error = pam_authenticate(pamh, 0);
+@@ -926,6 +930,8 @@
+ 		return 1;
+ 	}
+ 	if (error == PAM_SUCCESS) {
++		const void *vp;
++
+ 		/* Alright, we got it */
+ 		error = pam_acct_mgmt(pamh, 0);
+ 		if (error == PAM_SUCCESS)
+@@ -933,8 +939,10 @@
+ 		if (error == PAM_SUCCESS)
+ 			error = pam_setcred(pamh, PAM_ESTABLISH_CRED);
+ 		if (error == PAM_SUCCESS)
+-			error = pam_get_item(pamh, PAM_USER, (const void **) &user);
++			error = pam_get_item(pamh, PAM_USER, &vp);
+ 		if (error == PAM_SUCCESS) {
++			const char *user = vp;
++
+ 			if (strcmp(user, "ftp") == 0) {
+ 				guest = 1;
+ 			}
+@@ -1151,6 +1159,13 @@
+ 		}
+ 		strcpy(pw->pw_dir, "/");
+ 		setenv("HOME", "/", 1);
++	}
++	/* PSz 25 Aug 06  chdir for real users done after setting UID */
++	if (seteuid((uid_t)pw->pw_uid) < 0) {
++		reply(550, "Can't set uid.");
++		goto bad;
++	}
++	if (guest || dochroot) { /* do nothing, handled above */
+ 	} else if (chdir(pw->pw_dir) < 0) {
+ 		if (chdir("/") < 0) {
+ 			reply(530, "User %s: can't change directory to %s.",
+@@ -1159,10 +1174,7 @@
+ 		} else
+ 			lreply(230, "No directory! Logging in with home=/");
+ 	}
+-	if (seteuid((uid_t)pw->pw_uid) < 0) {
+-		reply(550, "Can't set uid.");
+-		goto bad;
+-	}
++
+ 	sigfillset(&allsigs);
+ 	sigprocmask(SIG_UNBLOCK,&allsigs,NULL);
+ 
+@@ -1400,7 +1412,8 @@
+ 			goto bad;
+ 		sleep(tries);
+ 	}
+-	(void) seteuid((uid_t)pw->pw_uid);
++/* PSz 25 Aug 06  Check return status */
++	if (seteuid((uid_t)pw->pw_uid) != 0) _exit(1);
+ 	sigfillset(&allsigs);
+ 	sigprocmask (SIG_UNBLOCK, &allsigs, NULL);
+ 
+@@ -1432,7 +1445,8 @@
+ bad:
+ 	/* Return the real value of errno (close may change it) */
+ 	t = errno;
+-	(void) seteuid((uid_t)pw->pw_uid);
++/* PSz 25 Aug 06  Check return status */
++	if (seteuid((uid_t)pw->pw_uid) != 0) _exit(1);
+ 	sigfillset (&allsigs);
+ 	sigprocmask (SIG_UNBLOCK, &allsigs, NULL);
+ 	(void) close(s);
+@@ -1786,7 +1800,7 @@
+ 	int c;
+ 	char line[LINE_MAX];
+ 
+-	(void)snprintf(line, sizeof(line), "/bin/ls -lgA %s", filename);
++	(void)snprintf(line, sizeof(line), "/bin/ls -lA %s", filename);
+ 	fin = ftpd_popen(line, "r");
+ 	lreply(211, "status of %s:", filename);
+ 	while ((c = getc(fin)) != EOF) {
+@@ -2063,10 +2077,11 @@
+ 
+ static void dolog(struct sockaddr_in *sn)
+ {
+-	struct hostent *hp = gethostbyaddr((char *)&sn->sin_addr,
+-		sizeof(struct in_addr), AF_INET);
++	struct hostent *hp;
+ 
+-	if (hp)
++	if (!numeric_hosts &&
++		(hp = gethostbyaddr((char *)&sn->sin_addr,
++				    sizeof(struct in_addr), AF_INET)))
+ 		(void) strncpy(remotehost, hp->h_name, sizeof(remotehost)-1);
+ 	else
+ 		(void) strncpy(remotehost, inet_ntoa(sn->sin_addr),
+--- linux-ftpd-0.17.orig/ftpd/popen.c
++++ linux-ftpd-0.17/ftpd/popen.c
+@@ -169,8 +169,13 @@
+ 		 * XXX: this doesn't seem right... and shouldn't
+ 		 * we initgroups, or at least setgroups(0,0)?
+ 		 */
+-		setgid(getegid());
+-		setuid(i);
++
++/*
++ * PSz 25 Aug 06  Must check the return status of these setgid/setuid calls,
++ * see  http://www.bress.net/blog/archives/34-setuid-madness.html
++ */
++		if ( setgid(geteuid())	!= 0 ) _exit(1);
++		if ( setuid(i)		!= 0 ) _exit(1);
+  
+ #ifndef __linux__
+ /* 

@@ -1,0 +1,97 @@
+ftpd for Debian
+---------------
+
+(May 4th, 2010)
+
+ftpd is now able to use IPv4 and IPv6 for data transport, in active and
+in passive mode. The default behaviour is to service both address families.
+Two options, '-4' and '-6', are introduced to restrict traffic to a single
+addressing mode.
+
+(Prior to October 2008)
+
+ftpd now supports PAM.  It is recommended that you leave the pam_ftp entry
+alone in the pam configuration file since ftpd uses it to figure out prompts
+and determining anonymity.
+
+The best way to disable anonymous ftp is to place ftp and anonymous in
+/etc/ftpusers.  Removing the user ftp from the system also works.
+
+The -A option no longer has any effect since authentication is done by PAM.
+To recover its functionality, just uncomment the ftpchroot line in the pam
+configuration file.
+
+If you wish to receive reports from users of your ftp server, you should setup
+an alias for ftp-bugs@name.of.your.ftp.server.
+
+
+Cooperation with inetd-servers.
+-------------------------------
+
+Once the address families IPv4 and IPv6 are mixed, the three usual
+super-servers 'openbsd-inetd', 'xinetd', and 'inetutils-inetd'
+behave each in its own way. The easiest one to use would be 'xinetd'
+in non-compatibility mode. A typical configuration is included in
+
+   /usr/share/doc/ftpd/examples/ftpd.xinetd.
+
+Also 'inetutils-inetd' can use a drop-in snippet configuration
+deposited in '/etc/inetd.d/', but the text corresponds to the
+lines discussed here.
+
+The following comments concern entries in '/etc/inetd.conf'.
+These observations are written with 'net.ipv6.bindv6only=1'
+in effect.
+
+* openbsd-inetd (formerly netkit-inetd)
+
+  Here 'tcp' and 'udp' are restricted to IPv4 sockets. Their
+  counterparts are 'tcp6' and 'udp6'. Thus a dual listener
+  needs a configuration similar to this:
+
+      # /etc/inetd.conf
+      ftp  stream  tcp  nowait  root   /usr/sbin/tcpd  /usr/sbin/in.ftpd -l
+      ftp  stream  tcp6 nowait  root   /usr/sbin/tcpd  /usr/sbin/in.ftpd -l
+
+  Observe the minute difference compared to 'inetutils-inetd' as stated
+  below, only one 'tcp6' versus one 'tcp4'.
+
+* xinetd
+
+  When this server is used in compatibility mode (controlled by
+  INETD_COMPAT=Yes in '/etc/default/xinetd') and when an IPv6
+  enabled host is detected, the protocols 'tcp' and 'udp', as
+  used in '/etc/inetd.conf', will automatically activate IPv4 as well
+  as IPv6. To single out one address family, use 'tcp4' or 'tcp6'.
+
+* inetutils-inetd
+
+  On a dual stacked system, 'inetutils-inetd' considers 'tcp' and 'tcp6'
+  to be synonymous. Thus, to listen for both address families one must
+  write two entries:
+
+      # /etc/inetd.conf
+      ftp  stream  tcp  nowait  root   /usr/sbin/tcpd  /usr/sbin/in.ftpd
+      ftp  stream  tcp4 nowait  root   /usr/sbin/tcpd  /usr/sbin/in.ftpd
+
+
+Globbing Attacks
+----------------
+
+Globbing attacks aimed at exhausting memory/CPU resources (e.g.,
+ls ../*/../*/../*/../*/../*/../*/../*/../*/../*/../*/../*/../*/../*) can be
+countered by setting the appropriate resource limits in
+/etc/security/limits.conf.  To do so, you need to make sure that /etc/pam.d/ftp
+contains the line
+
+session	required	pam_limits.so
+
+Which is the case by default.  The limits which are most important on Linux are
+"as" and "cpu".  For example, to limit the memory usage to 10MB, you should put
+
+ftp		hard	as	10240
+
+in /etc/security/limits.conf.
+
+Herbert <herbert@debian.org>
+$Id: README.Debian,v 1.4 2002/10/06 22:23:49 herbert Exp $

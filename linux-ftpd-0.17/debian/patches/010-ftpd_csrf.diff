@@ -1,0 +1,117 @@
+Description: Fix cross-site request forgery (CSRF) attacks.
+Author: Ian Beckwith <ianb@erislabs.net>
+X-Original-Location: http://bugs.debian.org/cgi-bin/bugreport.cgi?msg=29;filename=ftpd-csrf.patch;att=1;bug=500278
+X-Closes: Bug #500278
+X-Comment: Recovered as interdiff between linux-ftpd_0.17-23.diff.gz and linux-ftpd_0.17-29.diff.gz.
+Forwarded: no
+Last-Update: 2008-10-17
+--- linux-ftpd-0.17.orig/ftpd/extern.h
++++ linux-ftpd-0.17/ftpd/extern.h
+@@ -43,7 +43,7 @@
+ void	fatal __P((const char *));
+ int	ftpd_pclose __P((FILE *));
+ FILE   *ftpd_popen __P((char *, const char *));
+-char   *ftpd_getline __P((char *, int, FILE *));
++int     ftpd_getline __P((char *, int, FILE *));
+ void	ftpdlogwtmp __P((const char *, const char *, const char *));
+ void	lreply __P((int, const char *, ...));
+ void	makedir __P((char *));
+diff -u linux-ftpd-0.17/ftpd/ftpcmd.y linux-ftpd-0.17/ftpd/ftpcmd.y
+--- linux-ftpd-0.17/ftpd/ftpcmd.y
++++ linux-ftpd-0.17/ftpd/ftpcmd.y
+@@ -920,7 +920,7 @@
+ /*
+  * getline - a hacked up version of fgets to ignore TELNET escape codes.
+  */
+-char * ftpd_getline(char *s, int n, FILE *iop)
++int ftpd_getline(char *s, int n, FILE *iop)
+ {
+ 	int c;
+ 	register char *cs;
+@@ -934,7 +934,7 @@
+ 			if (debug)
+ 				syslog(LOG_FTP | LOG_DEBUG, "command: %s", s);
+ 			tmpline[0] = '\0';
+-			return(s);
++			return(0);
+ 		}
+ 		if (c == 0)
+ 			tmpline[0] = '\0';
+@@ -965,11 +965,22 @@
+ 		    }
+ 		}
+ 		*cs++ = c;
+-		if (--n <= 0 || c == '\n')
++		if (--n <= 0) {
++                       /*
++                        * If command doesn't fit into buffer, discard the
++                        * rest of the command and indicate truncation.
++                        * This prevents the command to be split up into
++                        * multiple commands.
++                        */
++		       while (c != '\n' && (c = getc(iop)) != EOF)
++                               ;
++                       return (-2);
++               }
++               if (c == '\n')
+ 			break;
+ 	}
+ 	if (c == EOF && cs == s)
+-		return (NULL);
++		return (-1);
+ 	*cs++ = '\0';
+ 	if (debug) {
+ 		if (!guest && strncasecmp("pass ", s, 5) == 0) {
+@@ -989,7 +1000,7 @@
+ 			syslog(LOG_FTP | LOG_DEBUG, "command: %.*s", len, s);
+ 		}
+ 	}
+-	return (s);
++	return (0);
+ }
+ 
+ void toolong(int signo)
+@@ -1018,9 +1029,14 @@
+ 		case CMD:
+ 			(void) signal(SIGALRM, toolong);
+ 			(void) alarm((unsigned) timeout);
+-			if (ftpd_getline(cbuf, sizeof(cbuf)-1, stdin)==NULL) {
+-				reply(221, "You could at least say goodbye.");
+-				dologout(0);
++			n=ftpd_getline(cbuf, sizeof(cbuf)-1, stdin);
++			if (n == -1) {
++				 reply(221, "You could at least say goodbye.");
++				 dologout(0);
++			} else if (n == -2) {
++                                reply(500, "Command too long.");
++                                alarm(0);
++                                continue;
+ 			}
+ 			(void) alarm(0);
+ 			if ((cp = strchr(cbuf, '\r'))) {
+diff -u linux-ftpd-0.17/ftpd/ftpd.c linux-ftpd-0.17/ftpd/ftpd.c
+--- linux-ftpd-0.17/ftpd/ftpd.c
++++ linux-ftpd-0.17/ftpd/ftpd.c
+@@ -2111,6 +2111,7 @@
+ static void myoob(int signo)
+ {
+ 	char *cp;
++	int ret;
+ 	int save_errno = errno;
+ 
+ 	(void)signo;
+@@ -2119,9 +2120,13 @@
+ 	if (!transflag)
+ 		return;
+ 	cp = tmpline;
+-	if (ftpd_getline(cp, 7, stdin) == NULL) {
++	ret=ftpd_getline(cp, 7, stdin);
++	if (ret == -1) {
+ 		reply(221, "You could at least say goodbye.");
+ 		dologout(0);
++	} else if (ret == -2) {
++	        /* Ignore truncated command */
++	        return;
+ 	}
+ 	upper(cp);
+ 	if (strcmp(cp, "ABOR\r\n") == 0) {

@@ -1,0 +1,47 @@
+Description: Reinitialize variable argument list for vsyslog().
+ The use of vprintf(fmt, ap) leaves the second argument in an
+ undefined state after execution. On a system using the amd64
+ architecture, this leads consistently to segmentation faults.
+ The solution is to insert the required initialization before
+ the call to vsyslog().
+Author: Mats Erik Andersson <debian@gisladisker.se>
+Forwarded: no
+Last-Update: 2010-05-09
+--- linux-ftpd-0.17/ftpd/ftpd.c.no-va_start
++++ linux-ftpd-0.17/ftpd/ftpd.c
+@@ -2051,10 +2051,17 @@ reply(int n, char *fmt, va_dcl va_alist)
+ 	(void)printf("%d ", n);
+ 	(void)vprintf(fmt, ap);
+ 	(void)printf("\r\n");
++	va_end(ap);
+ 	(void)fflush(stdout);
+ 	if (debug) {
++#ifdef __STDC__
++		va_start(ap, fmt);
++#else
++		va_start(ap);
++#endif
+ 		syslog(LOG_FTP | LOG_DEBUG, "<--- %d ", n);
+ 		vsyslog(LOG_FTP | LOG_DEBUG, fmt, ap);
++		va_end(ap);
+ 	}
+ }
+ 
+@@ -2077,10 +2084,17 @@ lreply(n, fmt, va_alist)
+ 	(void)printf("%d- ", n);
+ 	(void)vprintf(fmt, ap);
+ 	(void)printf("\r\n");
++	va_end(ap);
+ 	(void)fflush(stdout);
+ 	if (debug) {
++#ifdef __STDC__
++		va_start(ap, fmt);
++#else
++		va_start(ap);
++#endif
+ 		syslog(LOG_FTP | LOG_DEBUG, "<--- %d- ", n);
+ 		vsyslog(LOG_FTP | LOG_DEBUG, fmt, ap);
++		va_end(ap);
+ 	}
+ }
+ 

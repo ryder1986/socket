@@ -1,0 +1,30 @@
+Description: Do not link with libcrypt.
+ The test for libcrypt is only needed in cases
+ when USE_PAM is not set to active.
+Author: Mats Erik Andersson <debian@gisladisker.se>
+Forwarded: no
+Last-Update: 2012-03-29
+
+--- linux-ftpd-0.17.debian/configure
++++ linux-ftpd-0.17/configure
+@@ -261,6 +261,11 @@
+ 
+ ##################################################
+ 
++# libcrypt is only needed in the absence of libpam.
++
++if test -z "$USE_PAM"; then
++## Missing indentation in this clause!
++
+ echo -n 'Checking for crypt... '
+ cat <<EOF >__conftest.c
+ int main() { crypt("aa", "bb"); }
+@@ -285,6 +290,8 @@
+ fi
+ rm -f __conftest*
+ 
++fi	# test -z "$USE_PAM"
++
+ ##################################################
+ 
+ echo -n 'Checking for socklen_t... '

@@ -1,0 +1,25 @@
+linux-ftpd (0.17-31) unstable; urgency=low
+
+  The recent IPv6 capability is handled in distinct ways
+  by the three usual super-servers: openbsd-inetd, xinetd,
+  and inetutils-inetd. The differences are discussed in the
+  file README.Debian.
+
+  Depending on your old setup, 'update-inetd' might complain
+  about multiple instances of 'ftp' in '/etc/inetd.conf'. 
+  The present version tries to counter-act this at future
+  upgrades by inserting '--multi' in the maintainer scripts.
+
+ -- Mats Erik Andersson <mats.andersson@gisladisker.se>  Tue, 25 May 2010 20:12:28 +0200
+
+linux-ftpd (0.17-30) unstable; urgency=low
+
+  This packaging of linux-ftpd incorporates working support
+  for the IPv6 address family, in stand alone mode, as well
+  as under the control of a super server like xinetd.
+
+  The records made in wtmp now include the caller's address
+  structure, thus improving the prospects of tracing clients.
+
+ -- Mats Erik Andersson <mats.andersson@gisladisker.se>  Sat, 08 May 2010 19:54:28 +0200
+

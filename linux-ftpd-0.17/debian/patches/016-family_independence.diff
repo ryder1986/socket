@@ -1,0 +1,691 @@
+Description: Make the TCP transport code independent of address family.
+ Make sure to eliminate as much outdated dependency on AF_INET,
+ even before migrating to true support for AF_INET6.
+ .
+ 1. Rewrite dolog() and check_host().
+ .
+ 2. Eliminate inet_ntoa(), gethostbyname(), gethostbyaddr().
+ .
+ 3. Introduce helper functions get_port() and set_port()
+    in order to hide family dependency, as well as representation
+    in network byte order. This isolates use of ntohs() and htons()
+    to the above two functions, with a single exception.
+ .
+ 4. Make sure that the daemon initialization depends only on
+    a single AF_INET used for getaddrinfo(). This will later
+    be replaced by AF_UNSPEC.
+ .
+ 5. Make name and address lookup in main() independent of
+    address family.
+ .
+ 6. Reconstruct passive() to inherit address family from the
+    controlling socket, then building the listening socket
+    in an address independent manner.
+ .
+ 7. Let statcmd() and passive() report on IPv6 sockets
+    using the EPSV semantics '(|||portnum|)'.
+ .
+ 8. Let the parser in ftpcmd.y use getaddrinfo() with NI_NUMERICHOST
+    when constructing the IP-address, instead of manipulating byte
+    fields. Likewise, hide port extraction in get_port().
+Author: Mats Erik Andersson <debian@gisladisker.se>
+X-Comment: This code is fully independent of any USAGI code,
+ which is in use by the OpenBSD strand of this software.
+Forwarded: not-needed
+Last-Update: 2010-04-30
+--- linux-ftpd-0.17.debian/ftpd/ftpd.c
++++ linux-ftpd-0.17/ftpd/ftpd.c
+@@ -157,6 +157,7 @@ 
+ 
+ int	daemon_mode = 0;
+ int	data;
++in_port_t	data_port;
+ jmp_buf	errcatch, urgcatch;
+ int	logged_in;
+ struct	passwd *pw;
+@@ -259,7 +260,7 @@
+ static void	 myoob __P((int));
+ static int	 checkuser __P((const char *, const char *));
+ static FILE	*dataconn __P((const char *, off_t, const char *, int));
+-static void	 dolog __P((struct sockaddr_in *));
++static void	 dolog __P((struct sockaddr *));
+ static const char	*curdir __P((void));
+ static void	 end_login __P((void));
+ static FILE	*getdatasock __P((const char *));
+@@ -276,7 +277,7 @@
+ static void	 authentication_setup(const char *);
+ 
+ #if defined(TCPWRAPPERS)
+-static int	 check_host __P((struct sockaddr_in *));
++static int	 check_host __P((struct sockaddr *));
+ #endif
+ 
+ void logxfer __P((const char *, off_t, time_t));
+@@ -306,6 +307,63 @@ curdir(void)
+ 	return (guest ? path+1 : path);
+ }
+ 
++static uint32_t
++get_ipv4address(struct sockaddr * ss)
++{
++	if (ss->sa_family == AF_INET)
++		return ntohl(((struct sockaddr_in *) ss)->sin_addr.s_addr);
++	else if(ss->sa_family == AF_INET6) {
++		return ntohl(((struct sockaddr_in6 *) ss)->sin6_addr.s6_addr32[3]);
++	} else
++		/* Should Never happen. Sensible return value? */
++		return (uint32_t) -2;
++} /* get_ipv4address( struct sockaddr_storage * ) */
++
++static int
++get_port(struct sockaddr * sa)
++{
++	switch (sa->sa_family) {
++		case AF_INET6:
++			return ntohs(((struct sockaddr_in6 *) sa)->sin6_port);
++			break;
++		case AF_INET:
++		default:
++			return ntohs(((struct sockaddr_in *) sa)->sin_port);
++	}
++} /* get_port( struct sockaddr * ) */
++
++static void
++set_port(struct sockaddr * sa, short int port)
++{
++	switch (sa->sa_family) {
++		case AF_INET6:
++			((struct sockaddr_in6 *) sa)->sin6_port = htons(port);
++			break;
++		case AF_INET:
++		default:
++			((struct sockaddr_in *) sa)->sin_port = htons(port);
++	}
++} /* set_port( struct sockaddr *, short int ) */
++
++#ifdef BREAKRFC
++static int 
++cmp_addresses(struct sockaddr * left, struct sockaddr * right)
++{
++	if (left->sa_family != right->sa_family)
++		/* Should mapped or compatible IPv4 be handled? */
++		return 1;
++
++	if (left->sa_family == AF_INET6)
++	    return IN6_ARE_ADDR_EQUAL(&((struct sockaddr_in6 *) left)->sin6_addr,
++					&((struct sockaddr_in6 *) right)->sin6_addr)
++			? 0 : 1;
++
++	return (memcmp(&((struct sockaddr_in *) left)->sin_addr,
++			&((struct sockaddr_in *) right)->sin_addr,
++			sizeof(struct in_addr)));
++} /* cmp_addresses(struct sockaddr *, struct sockaddr *) */
++#endif
++
+ int
+ main(int argc, char *argv[], char **envp)
+ {
+@@ -314,7 +372,7 @@ main(int argc, char *argv[], char **envp
+ 	char *cp, line[LINE_MAX];
+ 	FILE *fd;
+ 	const char *argstr = "AdDhlMnSt:T:u:UvP";
+-	struct hostent *hp;
++	struct addrinfo hints, *aiptr;
+ 
+ #ifdef __linux__
+ 	initsetproctitle(argc, argv, envp);
+@@ -431,8 +489,9 @@ main(int argc, char *argv[], char **envp
+ 	openlog("ftpd", LOG_PID | LOG_NDELAY, LOG_FTP);
+ 
+ 	if (daemon_mode) {
+-		int ctl_sock, fd2;
++		int ctl_sock, fd2, rc;
+ 		struct servent *sv;
++		struct addrinfo hints, *ai, *aiptr;
+ 
+ 		/*
+ 		 * Detach from parent.
+@@ -452,31 +511,53 @@ main(int argc, char *argv[], char **envp
+ 			exit(1);
+ 		}
+ 		/*
+-		 * Open a socket, bind it to the FTP port, and start
+-		 * listening.
++		 * Open a socket, bind it to the FTP port,
++		 * and begin listening for calls.
+ 		 */
+-		ctl_sock = socket(AF_INET, SOCK_STREAM, 0);
+-		if (ctl_sock < 0) {
+-			syslog(LOG_FTP | LOG_ERR, "control socket: %m");
++		memset(&hints, 0, sizeof(hints));
++		hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
++		hints.ai_socktype = SOCK_STREAM;
++		hints.ai_family = AF_INET;
++
++		if ((rc = getaddrinfo(NULL, "ftp", &hints, &aiptr))) {
++			syslog(LOG_FTP | LOG_ERR,
++			    "getaddrinfo for ftp failed (%s)",
++			    gai_strerror(rc));
+ 			exit(1);
+ 		}
+-		if (setsockopt(ctl_sock, SOL_SOCKET, SO_REUSEADDR,
+-		    (char *)&on, sizeof(on)) < 0)
+-			syslog(LOG_FTP | LOG_ERR, "control setsockopt: %m");;
+-		server_addr.sin_family = AF_INET;
+-		server_addr.sin_addr.s_addr = INADDR_ANY;
+-		server_addr.sin_port = sv->s_port;
+-		if (bind(ctl_sock, (struct sockaddr *)&server_addr,
+-			 sizeof(server_addr))) {
+-			syslog(LOG_FTP | LOG_ERR, "control bind: %m");
+-			exit(1);
++		/* Loop over possible alternatives. */
++		for (ai = aiptr; ai; ai = ai->ai_next) {
++			if ((ctl_sock = socket(ai->ai_family,
++						ai->ai_socktype, ai->ai_protocol))
++					< 0)
++				continue;
++			if (setsockopt(ctl_sock, SOL_SOCKET, SO_REUSEADDR,
++			    (char *)&on, sizeof(on)) < 0)
++				syslog(LOG_FTP | LOG_ERR, "control setsockopt: %m");;
++
++			if (bind(ctl_sock, ai->ai_addr, ai->ai_addrlen)) {
++				close(ctl_sock);
++				continue;
++			}
++			if (listen(ctl_sock, 32) < 0) {
++				close(ctl_sock);
++				continue;
++			}
++
++			/* Socket successfully established: bound and listening. */
++			break;
+ 		}
+-		if (listen(ctl_sock, 32) < 0) {
+-			syslog(LOG_FTP | LOG_ERR, "control listen: %m");
++
++		freeaddrinfo(aiptr);
++
++		if (ai == NULL) {
++			/* Failure, no socket established. */
++			syslog(LOG_FTP | LOG_ERR, "listening socket failed");
+ 			exit(1);
+ 		}
++
+ 		/*
+-		 * Loop forever accepting connection requests and forking off
++		 * Loop forever, accepting connection requests, and forking off
+ 		 * children to handle them.
+ 		 */
+ 		while (1) {
+@@ -495,7 +576,7 @@ main(int argc, char *argv[], char **envp
+ 
+ #if defined(TCPWRAPPERS)
+ 		/* ..in the child. */
+-		if (!check_host(&his_addr))
++		if (!check_host((struct sockaddr *) &his_addr))
+ 			exit(1);
+ #endif	/* TCPWRAPPERS */
+ 	} else {
+@@ -527,7 +608,7 @@ main(int argc, char *argv[], char **envp
+ 	if (setsockopt(0, IPPROTO_IP, IP_TOS, (char *)&tos, sizeof(int)) < 0)
+ 		syslog(LOG_FTP | LOG_WARNING, "setsockopt (IP_TOS): %m");
+ #endif
+-	data_source.sin_port = htons(ntohs(ctrl_addr.sin_port) - 1);
++	data_port = get_port((struct sockaddr *) &ctrl_addr) - 1;
+ 
+ 	/* Try to handle urgent data inline */
+ #ifdef SO_OOBINLINE
+@@ -539,7 +620,7 @@ main(int argc, char *argv[], char **envp
+ 	if (fcntl(fileno(stdin), F_SETOWN, getpid()) == -1)
+ 		syslog(LOG_FTP | LOG_ERR, "fcntl F_SETOWN: %m");
+ #endif
+-	dolog(&his_addr);
++	dolog((struct sockaddr *) &his_addr);
+ 	/*
+ 	 * Set up default state
+ 	 */
+@@ -574,22 +655,21 @@ main(int argc, char *argv[], char **envp
+ 	}
+ 	(void) gethostname(hostname, sizeof(hostname));
+ 
++	memset(&hints, 0, sizeof(hints));
++	hints.ai_socktype = SOCK_STREAM;
++	hints.ai_family = AF_UNSPEC;
++	hints.ai_flags = AI_ADDRCONFIG | AI_CANONNAME;
++
+ 	/* Make sure hostname is fully qualified. */
+-	hp = gethostbyname(hostname);
+-	if (hp != NULL)
+-		strcpy(hostname, hp->h_name);
+-
+-	if (multihome) {
+-		hp = gethostbyaddr((char *) &ctrl_addr.sin_addr,
+-		    sizeof (struct in_addr), AF_INET);
+-		if (hp != NULL) {
+-			strcpy(dhostname, hp->h_name);
+-		} else {
+-			/* Default. */
+-			strcpy(dhostname, inet_ntoa(ctrl_addr.sin_addr));
+-		}
++	if (getaddrinfo(hostname, NULL, &hints, &aiptr) == 0) {
++		strncpy(hostname, aiptr->ai_canonname, sizeof(hostname));
++		freeaddrinfo(aiptr);
+ 	}
+ 
++	if (multihome)
++		(void) getnameinfo((struct sockaddr *) &ctrl_addr, addrlen,
++				dhostname, sizeof(dhostname), NULL, 0, 0);
++
+ 	reply(220, "%s FTP server (%s) ready.",
+ 	      (multihome ? dhostname : hostname), version);
+ 	(void) setjmp(errcatch);
+@@ -1392,21 +1472,19 @@ static FILE * getdatasock(const char *mo
+ 	sigfillset(&allsigs);
+ 	sigprocmask (SIG_BLOCK, &allsigs, NULL);
+ 	(void) seteuid((uid_t)0);
+-	s = socket(AF_INET, SOCK_STREAM, 0);
++	s = socket(his_addr.sin_family, SOCK_STREAM, 0);
+ 	if (s < 0)
+ 		goto bad;
+ 	if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
+ 	    (char *) &on, sizeof(on)) < 0)
+ 		goto bad;
+ 	/* anchor socket to avoid multi-homing problems */
+-#ifndef __linux__
+-	data_source.sin_len = sizeof(struct sockaddr_in);
+-#endif
+-	data_source.sin_family = AF_INET;
+-	data_source.sin_addr = ctrl_addr.sin_addr;
++	memcpy(&data_source, &ctrl_addr, sizeof(data_source));
++	set_port((struct sockaddr *) &data_source, data_port);
++
+ 	for (tries = 1; ; tries++) {
+ 		if (bind(s, (struct sockaddr *)&data_source,
+-		    sizeof(data_source)) >= 0)
++				sizeof(data_source)) >= 0)
+ 			break;
+ 		if (errno != EADDRINUSE || tries > 10)
+ 			goto bad;
+@@ -1468,7 +1546,7 @@ static FILE * dataconn(const char *name,
+ 	} else
+ 		sizebuf[0] = '\0';
+ 	if (pdata >= 0) {
+-		struct sockaddr_in from;
++		struct sockaddr_storage from;
+ 		int s;
+ 		socklen_t fromlen = sizeof(from);
+ 
+@@ -1482,7 +1560,7 @@ static FILE * dataconn(const char *name,
+ 			pdata = -1;
+ 			return (NULL);
+ 		}
+-		if (ntohs(from.sin_port) < IPPORT_RESERVED) {
++		if (get_port((struct sockaddr *) &from) < IPPORT_RESERVED) {
+ 			perror_reply(425, "Can't build data connection");
+ 			(void) close(pdata);
+ 			(void) close(s);
+@@ -1490,7 +1568,9 @@ static FILE * dataconn(const char *name,
+ 			return (NULL);
+ 		}
+ #ifdef BREAKRFC
+-		if (from.sin_addr.s_addr != his_addr.sin_addr.s_addr) {
++		//if (from.sin_addr.s_addr != his_addr.sin_addr.s_addr) {
++		if (cmp_addresses((struct sockaddr *) &from,
++					(struct sockaddr *) &his_addr)) {
+ 			perror_reply(435, "Can't build data connection"); 
+ 			(void) close(pdata);
+ 			(void) close(s);
+@@ -1527,13 +1607,19 @@ static FILE * dataconn(const char *name,
+ 		return (fdopen(data, mode));
+ 	}
+ 	if (usedefault)
+-		data_dest = his_addr;
++		memcpy(&data_dest, &his_addr, sizeof(data_dest));
+ 	usedefault = 1;
+ 	file = getdatasock(mode);
+ 	if (file == NULL) {
++		char ipaddr[INET6_ADDRSTRLEN], port[12];
++
++		(void) getnameinfo((struct sockaddr *) &data_source,
++				sizeof(struct sockaddr_storage),
++				ipaddr, sizeof(ipaddr), port, sizeof(port),
++				NI_NUMERICHOST);
++
+ 		reply(425, "Can't create data socket (%s,%d): %s.",
+-		    inet_ntoa(data_source.sin_addr),
+-		    ntohs(data_source.sin_port), strerror(errno));
++		    ipaddr, port, strerror(errno));
+ 		return (NULL);
+ 	}
+ 	data = fileno(file);
+@@ -1542,15 +1628,17 @@ static FILE * dataconn(const char *name,
+ 	 * attempt to connect to reserved port on client machine;
+ 	 * this looks like an attack
+ 	 */
+-	if (ntohs(data_dest.sin_port) < IPPORT_RESERVED ||
+-	    ntohs(data_dest.sin_port) == 2049) {		/* XXX */
++	if (get_port((struct sockaddr *) &data_dest) < IPPORT_RESERVED ||
++	    get_port((struct sockaddr *) &data_dest) == 2049) {		/* XXX */
+ 		perror_reply(425, "Can't build data connection");
+ 		(void) fclose(file);
+ 		data = -1;
+ 		return NULL;
+ 	}
+ #ifdef BREAKRFC
+-	if (data_dest.sin_addr.s_addr != his_addr.sin_addr.s_addr) {
++	//if (data_dest.sin_addr.s_addr != his_addr.sin_addr.s_addr) {
++	if (cmp_addresses((struct sockaddr *) &data_dest,
++				(struct sockaddr *) &his_addr)) {
+ 		perror_reply(435, "Can't build data connection");
+ 		(void) fclose(file);
+ 		data = -1;
+@@ -1826,14 +1914,19 @@
+ 
+ void statcmd(void)
+ {
+-	struct sockaddr_in *sn;
+-	u_char *a, *p;
++	struct sockaddr *sn;
++	char ipaddr[INET6_ADDRSTRLEN];
+ 
+ 	lreply(211, "%s FTP server status:", hostname, version);
+ 	printf("     %s\r\n", version);
+ 	printf("     Connected to %s", remotehost);
+-	if (!isdigit(remotehost[0]))
+-		printf(" (%s)", inet_ntoa(his_addr.sin_addr));
++	if (!isdigit(remotehost[0])) {
++		(void) getnameinfo((struct sockaddr *) &his_addr,
++				sizeof(struct sockaddr_storage),
++				ipaddr, sizeof(ipaddr), NULL, 0,
++				NI_NUMERICHOST);
++		printf(" (%s)", ipaddr);
++	}
+ 	printf("\r\n");
+ 	if (logged_in) {
+ 		if (guest)
+@@ -1859,17 +1952,24 @@ void statcmd(void)
+ 		printf("     Data connection open\r\n");
+ 	else if (pdata != -1) {
+ 		printf("     in Passive mode");
+-		sn = &pasv_addr;
++		sn = (struct sockaddr *) &pasv_addr;
+ 		goto printaddr;
+ 	} else if (usedefault == 0) {
+ 		printf("     PORT");
+-		sn = &data_dest;
++		sn = (struct sockaddr *) &data_dest;
+ printaddr:
+-		a = (u_char *) &sn->sin_addr;
+-		p = (u_char *) &sn->sin_port;
+ #define UC(b) (((int) b) & 0xff)
+-		printf(" (%d,%d,%d,%d,%d,%d)\r\n", UC(a[0]),
+-			UC(a[1]), UC(a[2]), UC(a[3]), UC(p[0]), UC(p[1]));
++		if (sn->sa_family == AF_INET6)
++			printf(" (|||%d|)\r\n", get_port(sn));
++		else {
++			uint32_t ip4ad = get_ipv4address(sn);
++			in_port_t port = get_port(sn);
++
++			printf(" (%d,%d,%d,%d,%d,%d)\r\n",
++				UC(ip4ad >> 24), UC(ip4ad >> 16),
++				UC(ip4ad >> 8), UC(ip4ad),
++				UC(port >> 8), UC(port));
++		}
+ #undef UC
+ 	} else
+ 		printf("     No data connection\r\n");
+@@ -2075,18 +2175,17 @@
+ 		ack("RNTO");
+ }
+ 
+-static void dolog(struct sockaddr_in *sn)
++static void dolog(struct sockaddr *sa)
+ {
+-	struct hostent *hp;
++	char host[NI_MAXHOST];
+ 
+-	if (!numeric_hosts &&
+-		(hp = gethostbyaddr((char *)&sn->sin_addr,
+-				    sizeof(struct in_addr), AF_INET)))
+-		(void) strncpy(remotehost, hp->h_name, sizeof(remotehost)-1);
+-	else
+-		(void) strncpy(remotehost, inet_ntoa(sn->sin_addr),
+-		    sizeof(remotehost)-1);
++	getnameinfo(sa, sizeof(struct sockaddr_storage),
++			host, sizeof(host), NULL, 0,
++			numeric_hosts ? NI_NUMERICHOST : 0);
++
++	(void) strncpy(remotehost, host, sizeof(remotehost)-1);
+ 	remotehost[sizeof(remotehost)-1] = '\0';
++
+ #ifdef HASSETPROCTITLE
+ 	snprintf(proctitle, sizeof(proctitle), "%s: connected", remotehost);
+ 	setproctitle("%s", proctitle);
+@@ -2158,9 +2257,8 @@ void passive(void)
+ #ifdef IP_PORTRANGE
+ 	int on;
+ #else
+-	u_short port;
++	in_port_t port;
+ #endif
+-	char *p, *a;
+ 
+ 	if (pw == NULL) {
+ 		reply(530, "Please login with USER and PASS");
+@@ -2168,12 +2266,14 @@ void passive(void)
+ 	}
+ 	if (pdata >= 0)
+ 		close(pdata);
+-	pdata = socket(AF_INET, SOCK_STREAM, 0);
++	pdata = socket(his_addr.sin_family, SOCK_STREAM, 0);
+ 	if (pdata < 0) {
+ 		perror_reply(425, "Can't open passive connection");
+ 		return;
+ 	}
+ 
++	memcpy(&pasv_addr, &ctrl_addr, sizeof(pasv_addr));
++
+ #ifdef IP_PORTRANGE
+ 	on = high_data_ports ? IP_PORTRANGE_HIGH : IP_PORTRANGE_DEFAULT;
+ 	if (setsockopt(pdata, IPPROTO_IP, IP_PORTRANGE,
+@@ -2184,8 +2284,8 @@ void passive(void)
+ #define FTP_DATA_TOP    44999
+ 	if (high_data_ports) {
+ 		for (port = FTP_DATA_BOTTOM; port <= FTP_DATA_TOP; port++) {
+-			pasv_addr = ctrl_addr;
+-			pasv_addr.sin_port = htons(port);
++			set_port((struct sockaddr *) &pasv_addr, port);
++
+ 			if (bind(pdata, (struct sockaddr *) &pasv_addr,
+ 				 sizeof(pasv_addr)) == 0)
+ 				break;
+@@ -2198,8 +2298,7 @@ void passive(void)
+ 	else
+ #endif
+ 	{
+-		pasv_addr = ctrl_addr;
+-		pasv_addr.sin_port = 0;
++		set_port((struct sockaddr *) &pasv_addr, 0);
+ 		if (bind(pdata, (struct sockaddr *)&pasv_addr,
+ 			 sizeof(pasv_addr)) < 0)
+ 			goto pasv_error;
+@@ -2210,13 +2309,24 @@ void passive(void)
+ 		goto pasv_error;
+ 	if (listen(pdata, 1) < 0)
+ 		goto pasv_error;
+-	a = (char *) &pasv_addr.sin_addr;
+-	p = (char *) &pasv_addr.sin_port;
+ 
+ #define UC(b) (((int) b) & 0xff)
+ 
+-	reply(227, "Entering Passive Mode (%d,%d,%d,%d,%d,%d)", UC(a[0]),
+-		UC(a[1]), UC(a[2]), UC(a[3]), UC(p[0]), UC(p[1]));
++	if (((struct sockaddr *) &pasv_addr)->sa_family == AF_INET6)
++		reply(229, "Extended Passive Mode OK (|||%d|)",
++			get_port((struct sockaddr *) &pasv_addr));
++	else {
++		uint32_t ip4ad = get_ipv4address((struct sockaddr *) &pasv_addr);
++		in_port_t port = get_port((struct sockaddr *) &pasv_addr);
++
++		reply(227, "Entering Passive Mode (%d,%d,%d,%d,%d,%d)",
++				UC(ip4ad >> 24), UC(ip4ad >> 16),
++				UC(ip4ad >> 8), UC(ip4ad),
++				UC(port >> 8), UC(port));
++	}
++
++#undef UC
++
+ 	return;
+ 
+ pasv_error:
+@@ -2476,23 +2586,25 @@
+ }
+ 
+ #if defined(TCPWRAPPERS)
+-static int check_host(struct sockaddr_in *sin)
++static int check_host(struct sockaddr *sa)
+ {
+-	struct hostent *hp = gethostbyaddr((char *)&sin->sin_addr,
+-		sizeof(struct in_addr), AF_INET);
+-	char *addr = inet_ntoa(sin->sin_addr);
++	char ipaddr[INET6_ADDRSTRLEN];
++	char host[NI_MAXHOST];
++
++	getnameinfo(sa, sizeof(struct sockaddr_storage),
++			ipaddr, sizeof(ipaddr), NULL, 0, NI_NUMERICHOST);
+ 
+-	if (hp) {
+-		if (!hosts_ctl("ftpd", hp->h_name, addr, STRING_UNKNOWN)) {
++	if (! getnameinfo(sa, sizeof(struct sockaddr_storage),
++				host, sizeof(host), NULL, 0, NI_NAMEREQD) ) {
++		if (!hosts_ctl("ftpd", host, ipaddr, STRING_UNKNOWN)) {
+ 			syslog(LOG_FTP | LOG_NOTICE,
+-			    "tcpwrappers rejected: %s [%s]",
+-			    hp->h_name, addr);
++			    "tcpwrappers rejected: %s [%s]", host, ipaddr);
+ 			return (0);
+ 		}
+ 	} else {
+-		if (!hosts_ctl("ftpd", STRING_UNKNOWN, addr, STRING_UNKNOWN)) {
++		if (!hosts_ctl("ftpd", STRING_UNKNOWN, ipaddr, STRING_UNKNOWN)) {
+ 			syslog(LOG_FTP | LOG_NOTICE,
+-			    "tcpwrappers rejected: [%s]", addr);
++			    "tcpwrappers rejected: [%s]", ipaddr);
+ 			return (0);
+ 		}
+ 	}
+--- linux-ftpd-0.17.debian/ftpd/ftpcmd.y
++++ linux-ftpd-0.17/ftpd/ftpcmd.y
+@@ -51,6 +51,7 @@
+ 
+ #include <netinet/in.h>
+ #include <arpa/ftp.h>
++#include <netdb.h>
+ 
+ #include <ctype.h>
+ #include <errno.h>
+@@ -116,6 +117,35 @@
+ extern struct tab cmdtab[];
+ extern struct tab sitetab[];
+ 
++static int
++get_port(struct sockaddr * sa)
++{
++	switch (sa->sa_family) {
++		case AF_INET6:
++			return (ntohs(((struct sockaddr_in6 *) sa)->sin6_port));
++			break;
++		case AF_INET:
++		default:
++			return (ntohs(((struct sockaddr_in *) sa)->sin_port));
++	}
++} /* get_port( struct sockaddr * ) */
++
++static int 
++cmp_addresses(struct sockaddr * left, struct sockaddr * right)
++{
++	if (left->sa_family != right->sa_family)
++		return 1;
++
++	if (left->sa_family == AF_INET6)
++	    return IN6_ARE_ADDR_EQUAL(&((struct sockaddr_in6 *) left)->sin6_addr,
++					&((struct sockaddr_in6 *) right)->sin6_addr)
++			? 0 : 1;
++
++	return (memcmp(&((struct sockaddr_in *) left)->sin_addr,
++			&((struct sockaddr_in *) right)->sin_addr,
++			sizeof(struct in_addr)));
++} /* cmp_addresses( struct sockaddr *, struct sockaddr * ) */
++
+ %}
+ 
+ %union {
+@@ -184,14 +214,13 @@ cmd
+ 					reply(500,	
+ 					    "Illegal PORT rejected (range errors).");
+ 				} else if (portcheck &&
+-				    ntohs(data_dest.sin_port) < IPPORT_RESERVED) {
++				    get_port((struct sockaddr *) &data_dest) < IPPORT_RESERVED) {
+ 					usedefault = 1;
+ 					reply(500,
+ 					    "Illegal PORT rejected (reserved port).");
+ 				} else if (portcheck &&
+-				    memcmp(&data_dest.sin_addr,
+-				    &his_addr.sin_addr,
+-				    sizeof data_dest.sin_addr)) {
++				    cmp_addresses((struct sockaddr *) &data_dest,
++				    		    (struct sockaddr *) &his_addr)) {
+ 					usedefault = 1;
+ 					reply(500,
+ 					    "Illegal PORT rejected (address wrong).");
+@@ -201,6 +230,7 @@ cmd
+ 						(void) close(pdata);
+ 						pdata = -1;
+ 					}
++					/* Valid remote address in 'data_dest'. */
+ 					reply(200, "PORT command successful.");
+ 				}
+ 			}
+@@ -632,22 +662,32 @@ host_port
+ 	: NUMBER COMMA NUMBER COMMA NUMBER COMMA NUMBER COMMA
+ 		NUMBER COMMA NUMBER
+ 		{
+-			char *a, *p;
++			char ipaddr[INET6_ADDRSTRLEN], port[12];
++			struct addrinfo hints, *aiptr;
+ 
+ 			if ($1 < 0 || $1 > 255 || $3 < 0 || $3 > 255 ||
+ 			    $5 < 0 || $5 > 255 || $7 < 0 || $7 > 255 ||
+ 			    $9 < 0 || $9 > 255 || $11 < 0 || $11 > 255) {
+ 				$$ = 1;
+ 			} else {
+-#ifndef __linux__
+-				data_dest.sin_len = sizeof(struct sockaddr_in);
+-#endif
+-				data_dest.sin_family = AF_INET;
+-				p = (char *)&data_dest.sin_port;
+-				p[0] = $9; p[1] = $11;
+-				a = (char *)&data_dest.sin_addr;
+-				a[0] = $1; a[1] = $3; a[2] = $5; a[3] = $7;
+-				$$ = 0;
++				snprintf(ipaddr, sizeof(ipaddr), "%ju.%ju.%ju.%ju",
++							$1, $3, $5, $7);
++				snprintf(port, sizeof(port), "%ju", 256 * $9 + $11);
++
++				memset(&hints, 0, sizeof(hints));
++				hints.ai_family = AF_INET;		/* Enable mapped addressing? */
++				hints.ai_socktype = SOCK_STREAM;
++				hints.ai_flags = AI_ADDRCONFIG | AI_NUMERICHOST | AI_NUMERICSERV;
++
++				if (getaddrinfo(ipaddr, port, &hints, &aiptr)) {
++					$$ = 1;
++				} else {
++					/* Store the generated address in 'data_dest'.
++					 * This is the remote host!                    */
++					memcpy(&data_dest, aiptr->ai_addr, aiptr->ai_addrlen);
++					freeaddrinfo(aiptr);
++					$$ = 0;
++				}
+ 			}
+ 		}
+ 	;

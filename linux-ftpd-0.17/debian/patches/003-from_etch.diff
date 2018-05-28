@@ -1,0 +1,54 @@
+Description: Patches recovered from linux-ftpd_0.17-23.diff.gz.
+ Interdiff against linux-ftpd_0.17-20sarge2.diff.gz.
+Author: Alberto Gonzalaez Iniesta <agi@inittab>
+X-Comment: Contribution by Matt Power, Stefan Cornelius, Paul Szabo,
+ and Andreas Jochens.
+Forwarded: no
+Last-Update: 2006-11-25
+diff -u linux-ftpd-0.17/ftpd/ftpcmd.y linux-ftpd-0.17/ftpd/ftpcmd.y
+--- linux-ftpd-0.17/ftpd/ftpcmd.y
++++ linux-ftpd-0.17/ftpd/ftpcmd.y
+@@ -101,7 +101,14 @@
+ char	cbuf[512];
+ char	*fromname;
+ 
+-struct tab;
++struct tab {
++	const char	*name;
++	short	token;
++	short	state;
++	short	implemented;	/* 1 if command is implemented */
++	const char	*help;
++};
++
+ static int	 yylex __P((void));
+ static void	 sizecmd __P((char *));
+ static void	 help __P((struct tab *, char *));
+@@ -834,14 +841,6 @@
+ #define	SITECMD	7	/* SITE command */
+ #define	NSTR	8	/* Number followed by a string */
+ 
+-struct tab {
+-	const char	*name;
+-	short	token;
+-	short	state;
+-	short	implemented;	/* 1 if command is implemented */
+-	const char	*help;
+-};
+-
+ struct tab cmdtab[] = {		/* In order defined in RFC 765 */
+ 	{ "USER", USER, STR1, 1,	"<sp> username" },
+ 	{ "PASS", PASS, ZSTR1, 1,	"<sp> password" },
+diff -u linux-ftpd-0.17/ftpd/popen.c linux-ftpd-0.17/ftpd/popen.c
+--- linux-ftpd-0.17/ftpd/popen.c
++++ linux-ftpd-0.17/ftpd/popen.c
+@@ -174,7 +174,7 @@
+  * PSz 25 Aug 06  Must check the return status of these setgid/setuid calls,
+  * see  http://www.bress.net/blog/archives/34-setuid-madness.html
+  */
+-		if ( setgid(geteuid())	!= 0 ) _exit(1);
++		if ( setgid(getegid())	!= 0 ) _exit(1);
+ 		if ( setuid(i)		!= 0 ) _exit(1);
+  
+ #ifndef __linux__
+
