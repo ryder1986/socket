@@ -4,7 +4,7 @@ HEADERS += \
     test.h videosource.h videoprocessor.h\
     c4processor.h c4common.h \
     testsource.h cameramanager.h app.h\
-    camera.h configmanager.h
+    camera.h configmanager.h hogprocessor.h
 
 SOURCES += \
     testtimer.cpp tool.cpp \
@@ -13,7 +13,7 @@ SOURCES += \
     test.cpp videosource.cpp videoprocessor.cpp\
     c4processor.cpp c4common.cpp \
     testsource.cpp cameramanager.cpp app.cpp\
-    camera.cpp configmanager.cpp
+    camera.cpp configmanager.cpp  hogprocessor.cpp
 
 CONFIG +=c++11
 DEFINES +=IS_UNIX

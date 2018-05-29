@@ -1,2 +1,2 @@
-#include "pvdhogprocessor.h"
+#include "hogprocessor.h"
 

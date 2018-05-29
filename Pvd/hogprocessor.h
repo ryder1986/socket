@@ -31,8 +31,13 @@ public:
     }
     PvdHogProcessor(DataPacket pkt , vector <Rect> rct):VideoProcessor()
     {
-        arg.no=id;
-        set_config(jv);
+
+        //  set_config(jv);
+    }
+    PvdHogProcessor(DataPacket):VideoProcessor()
+    {
+
+        //  set_config(jv);
     }
     string get_rst()
     {
@@ -45,7 +50,7 @@ public:
 
         //   arg.no=pkt.get_int("channel_id");
         vector <JsonValue> area=pkt.get_array("detect_area");
-      //  arg.area=area_2_rect(area);
+        //  arg.area=area_2_rect(area);
     }
 
 
@@ -80,22 +85,27 @@ public:
         pkt.set_value("duration",r.duration);
         pkt.set_value("other_count",r.other_count);
 
-//        vector<JsonValue> ve;
-//        foreach (Rect rct,r.rects) {
-//            DataPacket pkt_rct;
-//            pkt_rct.set_value("x",rct.x+arg.area.x);
-//            pkt_rct.set_value("y",rct.y+arg.area.y);
-//            //            pkt_rct.set_value("x",rct.x+arg.area.x);
-//            //            pkt_rct.set_value("y",rct.y+arg.area.y);
-//            pkt_rct.set_value("w",rct.width);
-//            pkt_rct.set_value("h",rct.height);
-//            ve.push_back(pkt_rct.value());
-//            prt(info,"1 person in %d %d %d %d",pkt_rct.get_int("x"),pkt_rct.get_int("y"),pkt_rct.get_int("w"),pkt_rct.get_int("h"));
-//        }
+        //        vector<JsonValue> ve;
+        //        foreach (Rect rct,r.rects) {
+        //            DataPacket pkt_rct;
+        //            pkt_rct.set_value("x",rct.x+arg.area.x);
+        //            pkt_rct.set_value("y",rct.y+arg.area.y);
+        //            //            pkt_rct.set_value("x",rct.x+arg.area.x);
+        //            //            pkt_rct.set_value("y",rct.y+arg.area.y);
+        //            pkt_rct.set_value("w",rct.width);
+        //            pkt_rct.set_value("h",rct.height);
+        //            ve.push_back(pkt_rct.value());
+        //            prt(info,"1 person in %d %d %d %d",pkt_rct.get_int("x"),pkt_rct.get_int("y"),pkt_rct.get_int("w"),pkt_rct.get_int("h"));
+        //        }
 
         return ret;
     }
 
+    virtual bool process(Mat img_src,vector<Rect> &rects,Rect detect_area)
+    {
+        real_process(img_src,rects);
+
+    }
 private:
 
     bool real_process(Mat &mt, std::vector<cv::Rect> &result_rects)
@@ -120,7 +130,7 @@ private:
         {
             if (1)
             {
-                resize(frame,frame,Size(frame.cols / 2, frame.rows / 2),CV_INTER_LINEAR);
+              //  resize(frame,frame,Size(frame.cols / 2, frame.rows / 2),CV_INTER_LINEAR);
                 cvtColor(frame, gray_frame, CV_BGR2GRAY);
                 cascade.detectMultiScale(gray_frame, objs, 1.1, 3);
                 vector<Rect>::iterator it = objs.begin();

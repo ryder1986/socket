@@ -48,7 +48,7 @@ public:
     ~MediaSource()
     {
         close_url();
-      //  close_h264_decoder();
+        //  close_h264_decoder();
     }
 
     bool get_frame(Mat &frame)
@@ -64,7 +64,7 @@ public:
             prt(info,"frame offset %d",  codec_info.fmt->ts_id);
             prt(info,"frame offset %d",  h264_pkt.pos);
 
-                          return true;
+            return true;
         }else{
             return false;
         }
@@ -185,13 +185,22 @@ public:
     }
     bool get_frame(Mat &frame)
     {
-        if(frame_list.size()>1){
-            frame=*frame_list.begin();
-            frame_list.erase(frame_list.begin());
-            return true;
+        int ret=false;
+      //  Mat frame1;
+        lock.lock();
+        if(frame_list.size()>0){
+//            frame1=*frame_list.end();
+//            frame1.copyTo(frame);
+//            frame_list.erase(frame_list.end());
+//            frame_list.pop_back();
+            frame_list.front().copyTo(frame);
+            frame_list.pop_front();
+            ret=true;
         }else{
-            return false;
+            ret=false;
         }
+        lock.unlock();
+        return ret;
     }
 
 
@@ -207,7 +216,7 @@ private:
 
 private:
     VideoCapture vcap;
-    vector <Mat> frame_list;
+    list <Mat> frame_list;
     int frame_wait_time;
     mutex lock;
     int frame_rate;
