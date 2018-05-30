@@ -9,14 +9,14 @@
 class TestProcess:public Test
 {
 public:
-  //  TestProcess():src("rtsp://192.168.1.95:554/av0_1")
-      TestProcess():src("rtsp://192.168.1.216:8554/test1")
+   //   TestProcess():src("rtsp://192.168.1.95:554/av0_1")
+    TestProcess():src("rtsp://192.168.1.216:8554/test1")
       {
         DataPacket pkt;
         pkt.set_string("ratio","0.7");
         pkt.set_int("step",2);
-     //   pro=new PvdC4Processor(pkt);
-        pro=new PvdHogProcessor(pkt);
+      //   pro=new PvdC4Processor(pkt);
+       pro=new PvdHogProcessor(pkt);
     }
 
 
