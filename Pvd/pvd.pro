@@ -7,10 +7,10 @@ CONFIG -= qt
 INCLUDEPATH +=cppjson/include
 SOURCES += main.cpp tool.cpp server.cpp cppjson/json_reader.cpp cppjson/json_writer.cpp  cppjson/json_value.cpp \
     app.cpp \
-    configmanager.cpp pvd.cpp videosource.cpp test.cpp
+    configmanager.cpp pvd.cpp videosource.cpp test.cpp c4common.cpp
 HEADERS+=tool.h server.h \
     app.h \
-    configmanager.h pvd.h videosource.h test.h
+    configmanager.h pvd.h videosource.h test.h  c4common.h
 DEFINES+=IS_UNIX
 LIBS+=-lpthread
 
@@ -24,3 +24,6 @@ LIBS+=-lopencv_core -lopencv_highgui \
 -lopencv_objdetect -lopencv_imgproc -lopencv_ml -lopencv_highgui \
  -lopencv_video
 LIBS+=-lavcodec -lavformat -lavutil -lswresample
+INCLUDEPATH+=track
+SOURCES +=track/Ctracker.cpp track/HungarianAlg.cpp  track/Kalman.cpp
+HEADERS += track/defines.h track/HungarianAlg.h track/Kalman.h track/Ctracker.h

@@ -189,10 +189,6 @@ public:
       //  Mat frame1;
         lock.lock();
         if(frame_list.size()>0){
-//            frame1=*frame_list.end();
-//            frame1.copyTo(frame);
-//            frame_list.erase(frame_list.end());
-//            frame_list.pop_back();
             frame_list.front().copyTo(frame);
             frame_list.pop_front();
             ret=true;
