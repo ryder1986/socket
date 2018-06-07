@@ -78,6 +78,10 @@ public:
 
     }
     DataPacket get_config();
+    void set_config(string cfg)
+    {
+        db.save(cfg);
+    }
 
 private:
     FileDatabase db;

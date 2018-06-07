@@ -6,14 +6,14 @@
 #include "pvd.h"
 #include "track/Ctracker.h"
 
-
+#include "pvdobject.h"
 #define KALMAN_LOST_FRAME_THREDHOLD 5
 #define KALMAN_TRACE_LEN 100
 
 #define C4FILE "res/combined.txt.model"
 #define alg_c4_file2 "res/combined2.txt.model"
 #define config_file "res/config.json"
-class PvdC4Processor : public VideoProcessor
+class PvdC4Processor : public VideoProcessor,public PvdObject
 {
 
     typedef struct args{
@@ -37,6 +37,11 @@ class PvdC4Processor : public VideoProcessor
     }m_result;
 
 public:
+    void decode_data()
+    {
+
+    }
+
     PvdC4Processor(JsonValue jv):VideoProcessor()
     {
         loaded=false;

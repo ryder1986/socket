@@ -8,18 +8,18 @@ class Test
 {
 public:
     Test();
-    template<typename callable,class...arguments>
-    void _start(callable&& f, arguments&&... args)
-    {
-        prt(info,"test start>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
+//    template<typename callable,class...arguments>
+//    void _start(callable&& f, arguments&&... args)
+//    {
+//        //prt(info,"test start>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
 
-        prt(info,"%s",  typeid(f).name());
-        std::function<typename std::result_of<callable(arguments...)>::type()> task
-            (std::bind(std::forward<callable>(f), std::forward<arguments>(args)...));
-        task();
+//        //prt(info,"%s",  typeid(f).name());
+//        std::function<typename std::result_of<callable(arguments...)>::type()> task
+//            (std::bind(std::forward<callable>(f), std::forward<arguments>(args)...));
+//        task();
 
-        prt(info,"test end<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
-    }
+//        //prt(info,"test end<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+//    }
     virtual void start()
     {
 

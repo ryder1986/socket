@@ -412,7 +412,30 @@ private:
 #define prt(label,...) {Tool1::lock.lock(); char buf[Tool1::LENGTH_FIXED_VALUE::BUFFER_LENGTH];memset(buf,0,sizeof(buf));snprintf(buf,sizeof(buf),__VA_ARGS__);\
     Tool1::prt(buf,__LINE__,__FUNCTION__,__FILE__,#label,Tool1::get_time().data());Tool1::lock.unlock();}
 #define THREAD_DEF(cls,fun) new thread(std::mem_fn(&cls::fun),*(cls*)this);
+template<typename callable,class...arguments>
+void _start(callable&& f, arguments&&... args)
+{
+    //prt(info,"test start>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
 
+    //prt(info,"%s",  typeid(f).name());
+    std::function<typename std::result_of<callable(arguments...)>::type()> task
+        (std::bind(std::forward<callable>(f), std::forward<arguments>(args)...));
+    task();
+
+    //prt(info,"test end<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+}
+template<typename callable,class...arguments>
+void _start_async(callable&& f, arguments&&... args)
+{
+    //prt(info,"test start>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
+
+    //prt(info,"%s",  typeid(f).name());
+    std::function<typename std::result_of<callable(arguments...)>::type()> task
+        (std::bind(std::forward<callable>(f), std::forward<arguments>(args)...));
+    thread(task).detach();
+
+    //prt(info,"test end<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+}
 #include <sys/time.h>
 inline int get_time()
 {

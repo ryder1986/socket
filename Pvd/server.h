@@ -323,7 +323,7 @@ public:
     //int re = recv(sock,buffer+offset,len,0);
 
     //}
-    static    int SendDataByTcp(int sock, char * buffer, int len)
+    static    int SendDataByTcp(int sock,const char * buffer, int len)
     {
         //	//prt(info,"send buffer len : %d",len);
         int ret = send(sock, buffer, len, 0);
@@ -472,7 +472,7 @@ public:
 
     }
 
-    int send(char *buf,int len)
+    int send(const char *buf,int len)
     {
         int ret= Socket::SendDataByTcp(skt,buf,len);
         if(ret){

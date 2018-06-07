@@ -26,6 +26,17 @@ private:
         while(JsonStr::get_valid_buf(str_stream,valid_buf)) {//Get valid json object, TODO:we only check {} matches, we should check json grammar
             prt(info,"process string   %s",valid_buf.data());
             prt(info,"left string   %s",str_stream.data());
+            DataPacket data(valid_buf);
+            string cmd=data.get_string("cmd");
+            if(cmd=="set config"){
+                cm.set_config(data.get_string("data"));
+                //restart_all();
+            }
+
+            if(cmd=="get config"){
+               clt->send(cm.get_config().data().data(),cm.get_config().data().length());
+            }
+
 
             //clt->send("hi,i get json",10);
         }

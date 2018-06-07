@@ -16,7 +16,7 @@ public:
         pkt.set_string("ratio","0.7");
         pkt.set_int("step",2);
          pro=new PvdC4Processor(pkt);
-       //   pro=new PvdHogProcessor(pkt);
+      //     pro=new PvdHogProcessor(pkt);
     }
 
 
@@ -52,10 +52,38 @@ public:
             }
         }
     }
+    void run_process1(int tt)
+    {
+        while(1){
+            prt(info,"%d",tt);
+            this_thread::sleep_for(chrono::milliseconds(1000));
+        }
+        //        Mat frame;
+        //        while(1){
+        //            this_thread::sleep_for(chrono::milliseconds(10));
+        //            if(src.get_frame(frame)&&frame.cols>0&&frame.rows>0){
+        //                prt(info,"get a frame ");
+        //                vector <Rect> rcts;
+        //                Rect area(0,0,640,480);
 
+        //                pro->process(frame,rcts,area);
+        //                prt(info,"result %d ",rcts.size());
+
+        //                if(rcts.size()>0){
+        //                    cv::Rect rc=rcts.front();
+        //                    //    prt(info,"%d %d %d %d  ",rc.x,rc.y,rc.width,rc.height);
+        //                    rectangle(frame,rc, cv::Scalar(0,255,255), 1);
+        //                }
+        //                imshow("123",frame);
+        //                waitKey(1);
+        //            }
+        //        }
+    }
     void start()
     {
-        _start(bind(&TestProcess::run_process,this,placeholders::_1),99);
+           _start(bind(&TestProcess::run_process,this,placeholders::_1),99);
+     //    _start_async(bind(&TestProcess::run_process1,this,placeholders::_1),43);
+        prt(info,"start done ~~~~~~~~~~~~~~~");
     }
 
 private:
