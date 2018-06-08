@@ -22,9 +22,9 @@ private:
 template<typename TP>
 class BaseConfig{
 public:
-    BaseConfig()
+    BaseConfig(TP d)
     {
-
+        data=d;
     }
 
     void decode_data()
@@ -42,7 +42,7 @@ public:
     }
 
 private:
-
+    TP data;
 };
 
 #endif // PVDOBJECT_H

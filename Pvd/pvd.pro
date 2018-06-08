@@ -7,12 +7,12 @@ CONFIG -= qt
 INCLUDEPATH +=cppjson/include
 SOURCES += main.cpp tool.cpp server.cpp cppjson/json_reader.cpp cppjson/json_writer.cpp  cppjson/json_value.cpp \
     app.cpp \
-    configmanager.cpp pvd.cpp videosource.cpp test.cpp c4common.cpp \
-    pvdobject.cpp
+    configmanager.cpp pvd.cpp videosource.cpp test.cpp c4common.cpp c4processor.cpp \
+    pvdobject.cpp hogprocessor.cpp
 HEADERS+=tool.h server.h \
     app.h \
     configmanager.h pvd.h videosource.h test.h  c4common.h \
-    pvdobject.h
+    pvdobject.h c4processor.h  hogprocessor.h
 DEFINES+=IS_UNIX
 LIBS+=-lpthread
 

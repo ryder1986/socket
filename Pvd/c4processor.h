@@ -13,6 +13,19 @@
 #define C4FILE "res/combined.txt.model"
 #define alg_c4_file2 "res/combined2.txt.model"
 #define config_file "res/config.json"
+
+#include "pvdobject.h"
+
+template<typename TP>
+class C4Config:public BaseConfig<TP>
+{
+public:
+    C4Config(TP)
+    {
+
+    }
+};
+
 class PvdC4Processor : public VideoProcessor,public PvdObject
 {
 
