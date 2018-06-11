@@ -1,7 +1,7 @@
 #include "pvdobject.h"
 
-PvdObject::PvdObject()
-{
+//PvdObject::PvdObject()
+//{
 
-}
+//}
 

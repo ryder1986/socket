@@ -15,7 +15,7 @@ public:
         DataPacket pkt;
         pkt.set_string("ratio","0.7");
         pkt.set_int("step",2);
-         pro=new PvdC4Processor(pkt);
+        pro=new PvdC4Processor(pkt);
       //     pro=new PvdHogProcessor(pkt);
     }
 

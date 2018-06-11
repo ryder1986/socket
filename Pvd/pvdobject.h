@@ -3,46 +3,47 @@
 
 #include "tool.h"
 #include "pvd.h"
-class PvdObject
-{
-public:
-    PvdObject();
-    virtual void decode_data()=0;
-    DataPacket get_data()
-    {
-        return DataPacket();
-    }
 
-private:
-    void encode_data()
-    {
+//class PvdObject
+//{
+//public:
+//    PvdObject();
+//    virtual void decode_data()=0;
+//    DataPacket get_data()
+//    {
+//        return DataPacket();
+//    }
 
-    }
-};
-template<typename TP>
-class BaseConfig{
-public:
-    BaseConfig(TP d)
-    {
-        data=d;
-    }
+//private:
+//    void encode_data()
+//    {
 
-    void decode_data()
-    {
+//    }
+//};
+//template<typename TP>
+//class BaseConfig{
+//public:
+//    BaseConfig(TP d)
+//    {
+//        data=d;
+//    }
 
-    }
+//    void decode_data()
+//    {
 
-    void encode_data()
-    {
+//    }
 
-    }
-    DataPacket get_data()
-    {
-        return DataPacket();
-    }
+//    void encode_data()
+//    {
 
-private:
-    TP data;
-};
+//    }
+//    DataPacket get_data()
+//    {
+//        return DataPacket();
+//    }
+
+//private:
+//    TP data;
+//};
 
 #endif // PVDOBJECT_H

@@ -16,17 +16,44 @@
 
 #include "pvdobject.h"
 
+//template<typename TP>
+//class C4Config:public BaseConfig<TP>
+//{
+//public:
+//    C4Config(TP)
+//    {
+
+//    }
+//};
+
+#include "pvd.h"
 template<typename TP>
-class C4Config:public BaseConfig<TP>
-{
+class JsonDataDealer{
+//    DataPaket data;
+    TP *p_arg;
 public:
-    C4Config(TP)
+    JsonDataDealer(DataPacket data,TP &arg)
+    {
+        trans(arg,data);
+        p_arg=&arg;
+    }
+    void trans(DataPacket &data,TP arg)
     {
 
     }
-};
+    void trans(TP &arg,DataPacket data)
+    {
 
-class PvdC4Processor : public VideoProcessor,public PvdObject
+    }
+
+    DataPacket get()
+    {
+        DataPacket ret;
+        trans(ret,*p_arg);
+        return ret;
+    }
+};
+class PvdC4Processor : public VideoProcessor
 {
 
     typedef struct args{
