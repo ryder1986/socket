@@ -5,7 +5,7 @@
 #include <string.h>
 
 #include "zenarp.h"
-
+#include "arp.h"
 int g_flag=0;
 
 unsigned char sourcemac[6];
@@ -27,6 +27,7 @@ char local_gateway[20] = {'\0'};
 
 int main()
 {
+    arp();
 	int err;
 	pthread_t CatcharpID;
 	pthread_t SendarpID;
